@@ -1,5 +1,6 @@
 # 项目文档导航
 
+- `docs/features/huahai-health-library.md` — 官网大健康知识库、三个中文主题页、目录来源校正、每日三餐、统一导航/语言/响应式与独立发布；覆盖农事文档的旧首页条和弹窗交互，不替代 IoT 或商城规则。
 - `docs/features/huahai-farming-calendar.md` — 首页今日农事、北京时间农历/节气、季节农事与短故事、官网/大屏同版源码及独立发布门禁；仅覆盖集团官网公开内容。
 
 - `docs/features/huahai-digital-human.md` — 华海农科原创动画数字人、六主题公司与产品讲解、互动网页、中文视频、资料边界和本地验收；不替代爱买买业务或物联网设计。

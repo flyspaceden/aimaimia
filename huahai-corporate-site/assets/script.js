@@ -272,7 +272,7 @@
   });
   const pageLinks = [...document.querySelectorAll('a[href]')].filter((link) => {
     const url = new URL(link.href);
-    return url.origin === location.origin && (/\/(index|about|business|technology|industry|contact|privacy|terms)\.html$/.test(url.pathname) || /\/digital-human\/(?:index\.html)?$/.test(url.pathname));
+    return url.origin === location.origin && (/\/(index|about|business|technology|industry|contact|privacy|terms|health|agriculture|food-medicine|healthy-recipes)\.html$/.test(url.pathname) || /\/digital-human\/(?:index\.html)?$/.test(url.pathname));
   });
   const dictionaries = new Map();
   let activeLanguage = 'zh-CN';

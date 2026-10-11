@@ -18,10 +18,10 @@ test('all nine translated catalogs cover every public page and its accessible me
     if (/[\u4e00-\u9fff]/.test(text) && !/^粤(?:ICP备|公网安备).*号$/.test(text)) sources.add(text);
   };
   for (const file of readdirSync(root).filter((name) => name.endsWith('.html'))) {
-    const html = read(`${root}/${file}`).replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+    const html = read(`${root}/${file}`).replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '').replace(/<main\b[^>]*data-translation-ignore[^>]*>[\s\S]*?<\/main>/gi, '');
     for (const match of html.matchAll(/>([^<>]+)</g)) add(match[1]);
     for (const match of html.matchAll(/\b(?:alt|aria-label|title|content)="([^"]*)"/g)) add(match[1]);
-    const scriptVersion = file === 'index.html' ? '20261010-farming1' : '20261005-nav1';
+    const scriptVersion = '20261011-health1';
     assert.ok(read(`${root}/${file}`).includes(`src="assets/script.js?v=${scriptVersion}"`), file);
   }
   for (const locale of locales) {
@@ -68,4 +68,29 @@ test('public contact information and protected dashboard targets remain intact',
     }
   }
   assert.match(read(`${root}/technology.html`), /href="https:\/\/iot-admin\.huahainongke\.com\/screens"/);
+});
+
+test('food catalog uses the specified official batches and recipes provide complete everyday menus', () => {
+  const catalog = JSON.parse(read(`${root}/assets/food-medicine.json`));
+  const batches = catalog.records.reduce((groups, row) => { (groups[row.year] ||= []).push(row); return groups; }, {});
+  assert.equal(catalog.records.length, 106);
+  assert.equal(new Set(catalog.records.map(row => row.name)).size, 106);
+  assert.equal(batches['2002'].length, 87);
+  assert.deepEqual(batches['2019'].map(row => row.name), ['当归','山柰','西红花','草果','姜黄','荜茇']);
+  assert.deepEqual(batches['2023'].map(row => row.name), ['党参','肉苁蓉（荒漠）','铁皮石斛','西洋参','黄芪','灵芝','山茱萸','天麻','杜仲叶']);
+  assert.deepEqual(batches['2024'].map(row => row.name), ['地黄','麦冬','天冬','化橘红']);
+  for (const row of catalog.records) {
+    assert.equal(new URL(row.source).hostname, 'www.nhc.gov.cn');
+    assert.ok(row.useNote);
+    if(row.year==='2019')assert.match(row.useNote,/仅作为香辛料和调味品/);
+  }
+  assert.equal(catalog.records.some(row=>['山银花','芦荟'].includes(row.name)),false);
+  for(const name of ['党参','西洋参'])assert.match(catalog.records.find(row=>row.name===name).useNote,/不宜与藜芦同用/);
+  const recipes = JSON.parse(read(`${root}/assets/healthy-recipes.json`));
+  assert.equal(recipes.menus.length, 7);
+  for (const menu of recipes.menus) {
+    assert.deepEqual(menu.meals.map(meal=>meal.name), ['早餐','午餐','晚餐']);
+    for(const meal of menu.meals){assert.ok(meal.ingredients.length);assert.ok(meal.method);assert.ok(Array.isArray(meal.allergens))}
+    assert.ok(menu.extraIngredients.length);assert.ok(Array.isArray(menu.extraAllergens));
+  }
 });

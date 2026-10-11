@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/style.css?v=20261004-digital1" />
-  <link rel="stylesheet" href="assets/farming-calendar.css?v=20261010-v1" />
+<link rel="stylesheet" href="assets/health-library.css?v=20261011-health1">
 </head>
 <body>
 
@@ -30,6 +30,15 @@
       <a href="business.html" data-route="business.html">业务版图</a>
       <a href="technology.html" data-route="technology.html">技术引擎</a>
       <a href="industry.html" data-route="industry.html">产业生态</a>
+    <div class="nav-library">
+      <button class="nav-library-trigger" type="button" aria-expanded="false" aria-controls="health-navigation">大健康知识库 <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></button>
+      <div class="nav-library-menu" id="health-navigation" hidden>
+        <a href="health.html" data-route="health.html">知识库总览</a>
+        <a href="agriculture.html" data-route="agriculture.html">农事上下五千年</a>
+        <a href="food-medicine.html" data-route="food-medicine.html">药食同源（知识）</a>
+        <a href="healthy-recipes.html" data-route="healthy-recipes.html">今日健康食谱</a>
+      </div>
+    </div>
       <a href="digital-human/" data-route="digital-human">AI数字讲解</a>
       <a href="contact.html" data-route="contact.html" class="nav-cta">联系我们</a>
     </nav>
@@ -62,18 +71,6 @@
       <p class="hero-guide-note">中文讲解与配音，可点选主题、查看讲稿和提问。</p>
     </aside>
   </div>
-</section>
-
-
-
-
-<section class="today-farming" id="today-farming">
-  <div class="container farming-strip">
-    <span class="farming-strip-term" data-today-term data-translation-ignore lang="zh-CN" dir="ltr">节气</span>
-    <div><h2>今日农事</h2><div data-translation-ignore lang="zh-CN" dir="ltr"><p data-today-date>农历与节气日历</p><p data-today-brief>认识节气，读懂农事。农事正文为中文原文。</p></div></div>
-    <button class="btn btn-secondary" type="button" data-open-farming aria-haspopup="dialog" disabled>查看农事日历</button>
-  </div>
-  <noscript data-translation-ignore lang="zh-CN" dir="ltr"><div class="container"><p>农历日期与节气需启用 JavaScript。可阅读<a href="https://www.cma.gov.cn/2011xwzx/2011xmtjj/202110/t20211029_4006706.html" target="_blank" rel="noopener noreferrer">节气与农耕文化</a>。</p></div></noscript>
 </section>
 
 <section class="section">
@@ -264,7 +261,7 @@
   </div>
 </footer>
 
-<script src="assets/script.js?v=20261010-farming1"></script>
-<script src="assets/farming-calendar.js?v=20261010-v1" defer></script>
+<script src="assets/script.js?v=20261011-health1"></script>
+<script src="assets/health-library.js?v=20261011-health1" defer></script>
 </body>
 </html>
