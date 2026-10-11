@@ -1,0 +1,29 @@
+import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {fileURLToPath} from 'node:url';import {createRequire} from 'node:module';import {execFileSync} from 'node:child_process';
+const root=path.dirname(fileURLToPath(import.meta.url)),locale=process.argv[2];if(!['en','es','pt','ja'].includes(locale))throw new Error('Unsupported locale');
+const sha=b=>crypto.createHash('sha256').update(b).digest('hex'),read=f=>fs.readFileSync(path.join(root,f)),json=f=>JSON.parse(read(f));
+const ffmpeg=process.env.HUAHAI_FFMPEG||'ffmpeg',build=path.join(root,'build/multilingual',locale),manifest=json('build/multilingual/'+locale+'/guide-voice-manifest.json'),knowledge=json('locales/'+locale+'/knowledge.json'),voice=json('locales/'+locale+'/voice-config.json'),config=json('character-config.json'),film=json('media/brand-film-'+locale+'-manifest.json');
+process.on('uncaughtException',e=>{console.error('Media publication failed: '+String(e.code||e.name||'error').replace(/[^\w.-]/g,'')+' / '+String(e.status||''));process.exit(1);});
+if(film.encodedFrames!==Math.ceil(Math.round(film.duration*24000)*film.fps/24000))throw new Error('Film encoded frame count mismatch');
+if(film.rendererHash!==sha(read('build-content-film.mjs')))throw new Error('Film renderer mismatch');
+if(film.uiHash!==sha(JSON.stringify(json('locales/'+locale+'/ui.json'))))throw new Error('Film labels mismatch');
+if(film.locale!==locale||film.knowledgeHash!==sha(read('locales/'+locale+'/promo-knowledge.json'))||film.voiceConfigHash!==sha(JSON.stringify(voice)))throw new Error('Film locale/script/voice mismatch');
+if(manifest.knowledgeHash!==sha(JSON.stringify(knowledge))||JSON.stringify(manifest.voice)!==JSON.stringify(voice))throw new Error('Guide voice/content mismatch');
+const files=[];
+for(const chapter of manifest.chapters){const source=path.join(root,chapter.file);if(sha(fs.readFileSync(source))!==chapter.audioHash)throw new Error('Chapter audio mismatch');const out=path.join(build,locale+'-'+chapter.id+'.mp3');const conversion={sourceHash:chapter.audioHash,normalization:'loudnorm=I=-18:TP=-1.5:LRA=7',sampleRate:24000,channels:1,codec:'libmp3lame',bitrate:'128k'},receipt=out+'.conversion.json';
+const cached=fs.existsSync(receipt)?JSON.parse(fs.readFileSync(receipt)):null;
+if(!cached||JSON.stringify(cached.conversion)!==JSON.stringify(conversion)||!fs.existsSync(out)||cached.audioHash!==sha(fs.readFileSync(out))){
+ execFileSync(ffmpeg,['-y','-v','error','-i',source,'-af',conversion.normalization,'-ar',String(conversion.sampleRate),'-ac',String(conversion.channels),'-c:a',conversion.codec,'-b:a',conversion.bitrate,out],{stdio:'pipe'});
+ fs.writeFileSync(receipt,JSON.stringify({conversion,audioHash:sha(fs.readFileSync(out))}));
+}
+files.push({id:chapter.id,file:out,type:'audio/mpeg'});}
+for(const suffix of ['', '-preview'])files.push({id:suffix?'preview':'film',file:path.join(root,'media','huahai-brand-film-'+locale+suffix+'.mp4'),type:'video/mp4'});
+for(const file of files){file.bytes=fs.statSync(file.file).size;file.sha256=sha(fs.readFileSync(file.file));}
+if(files.find(f=>f.id==='preview').sha256!==film.previewHash||files.find(f=>f.id==='preview').bytes!==film.previewBytes||files.find(f=>f.id==='film').sha256!==film.videoHash||film.decoder!=='software'||film.uniqueClips!==true)throw new Error('Film content/decoder mismatch');
+const prefix='huahai-corporate/digital-human/20261011-'+locale+'-'+sha(JSON.stringify(files.map(f=>({id:f.id,bytes:f.bytes,sha256:f.sha256})))).slice(0,12)+'/';
+const require=createRequire('/Users/jamesheden/Desktop/农脉 - AI赋能农业电商平台/backend/package.json'),OSS=require('ali-oss');if(process.env.OSS_BUCKET!=='huahai-aimaimai')throw new Error('Unexpected public media bucket');const client=new OSS({region:process.env.OSS_REGION,bucket:process.env.OSS_BUCKET,accessKeyId:process.env.OSS_ACCESS_KEY_ID,accessKeySecret:process.env.OSS_ACCESS_KEY_SECRET,secure:true});
+for(const file of files){const name=path.basename(file.file),key=prefix+name;let exists=false;try{const r=await client.head(key);exists=Number(r.res.headers['content-length'])===file.bytes&&r.res.headers['x-oss-meta-sha256']===file.sha256;if(!exists)throw new Error('Immutable media object mismatch');}catch(e){if(e.status!==404)throw e;}
+ if(!exists){const opts={headers:{'Content-Type':file.type,'Cache-Control':'public, max-age=31536000, immutable',...(file.id==='film'?{'Content-Disposition':'attachment; filename="huahai-brand-film-'+locale+'-1080p.mp4"'}:{})},meta:{sha256:file.sha256}};if(file.bytes>30*1024*1024)await client.multipartUpload(key,file.file,opts);else await client.put(key,file.file,opts);}
+ const r=await client.head(key);if(Number(r.res.headers['content-length'])!==file.bytes||r.res.headers['x-oss-meta-sha256']!==file.sha256)throw new Error('Published media verification failed');file.url='https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/'+key;console.log(locale+' published '+file.id+' '+file.bytes+' bytes');
+}
+const output={locale,version:knowledge.version,contentHash:sha(JSON.stringify(knowledge)),characterConfigHash:sha(JSON.stringify(config)),voiceConfigHash:sha(JSON.stringify(voice)),spriteHash:sha(read(config.sheet)),voice:voice.model+'/'+voice.voice,alignment:'qwen3-filetrans-word-timestamps',chapters:manifest.chapters.map(ch=>({id:ch.id,audio:files.find(f=>f.id===ch.id).url,duration:ch.duration,cues:ch.cues})),film:{locale,preview:files.find(f=>f.id==='preview').url,download:files.find(f=>f.id==='film').url,poster:'media/brand-film-'+locale+'-cover.png',subtitle:'media/huahai-brand-film-'+locale+'.srt',duration:film.duration,shots:film.shots.length}};
+fs.writeFileSync(path.join(root,'locales',locale,'media-manifest.json'),JSON.stringify(output,null,2)+'\n');fs.writeFileSync(path.join(root,'locales',locale,'published-media.json'),JSON.stringify({locale,prefix,files:files.map(({file,type,...f})=>({...f,name:path.basename(file),type}))},null,2)+'\n');

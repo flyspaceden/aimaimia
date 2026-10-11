@@ -1,0 +1,329 @@
+{
+  "version": "2026-10-03-v2",
+  "sourceCommit": "5b0125018091779a2ed20b23bc7f2bff5d9e3665",
+  "company": "Shenzhen Huahai AgriTech Group Co., Ltd.",
+  "character": {
+    "name": "Xiaoxi",
+    "role": "Assistente digital da Huahai AgriTech",
+    "type": "Rinoceronte cartoon estilizado de quatro patas, com oito expressões e posturas distintas, em estilo 3D com animação 2D"
+  },
+  "intro": "Olá, sou a Xiaoxi, a apresentadora digital da Huahai AgriTech. A seguir, apresentarei a Huahai AgriTech sob seis aspectos: estratégia corporativa, conceito de desenvolvimento, rota tecnológica, produto Aimaimai, cadeia completa de produção e comercialização com IA, e ecossistema agrícola de bem-estar.",
+  "outro": "Da produção agrícola à mesa familiar, da coleta de dados aos serviços inteligentes: a Huahai AgriTech busca aproximar a tecnologia do setor, tornar a qualidade mais visível e facilitar a colaboração entre oferta e demanda. Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar. Agradecemos sua atenção e convidamos você a explorar juntos o futuro da agricultura com IA com a Huahai AgriTech.",
+  "sources": [
+    {
+      "id": "about",
+      "title": "Huahai AgriTech · Sobre nós",
+      "url": "https://huahainongke.com/about.html",
+      "kind": "公司公开介绍"
+    },
+    {
+      "id": "business",
+      "title": "Huahai AgriTech · Mapa de negócios",
+      "url": "https://huahainongke.com/business.html",
+      "kind": "公司公开介绍"
+    },
+    {
+      "id": "technology",
+      "title": "Huahai AgriTech · Motor tecnológico",
+      "url": "https://huahainongke.com/technology.html",
+      "kind": "公司技术布局"
+    },
+    {
+      "id": "industry",
+      "title": "Huahai AgriTech · Ecossistema setorial",
+      "url": "https://huahainongke.com/industry.html",
+      "kind": "公司产业布局"
+    },
+    {
+      "id": "product",
+      "title": "Verificação de códigos de produtos Aimaimai",
+      "kind": "代码能力，非线上验收",
+      "paths": [
+        "app/",
+        "miniapp/src/",
+        "seller/src/",
+        "admin/src/",
+        "backend/src/modules/order/",
+        "backend/src/modules/ai/ai.controller.ts",
+        "backend/src/modules/ai/ai.service.ts",
+        "backend/src/modules/recommendation/recommendation.service.ts",
+        "backend/src/modules/trace/trace.service.ts",
+        "backend/src/modules/customer-service/"
+      ]
+    },
+    {
+      "id": "iot",
+      "title": "Projeto de tecnologia IoT da Huahai",
+      "kind": "技术路线，非全自动运行证明",
+      "paths": [
+        "华海农业物联网/huahai-iot-platform/README.md：AI建议与投喂安全边界"
+      ]
+    }
+  ],
+  "boundaries": [
+    "Estratégias divulgadas no site, direções de pesquisa e capacidades de código não equivalem a implantação produtiva nem à aceitação formal de equipamentos reais. Sem verificação prévia, não são informados escopo de cobertura, percentuais de aumento de produtividade, redução de custos, listas de parceiros ou resultados de certificações.",
+    "As sugestões da IA exigem dados válidos, calibração de equipamentos, regras agronômicas e confirmação humana; não se afirma que já foi alcançada a produção ou criação totalmente automatizada e sem intervenção humana.",
+    "O módulo atual de recomendação comum inclui implementação de espaço reservado; não se afirma que todas as recomendações de produtos já utilizem inferência personalizada com modelos de grande porte.",
+    "A exibição de rastreabilidade depende dos lotes, registros de testes e de circulação efetivamente inseridos e associados pelo comerciante; a inclusão em blockchain ou a emissão de certificados digitais não comprovam que os registros na origem sejam necessariamente verdadeiros, nem afirmam que todos os produtos tenham rastreabilidade integral em blockchain.",
+    "Pontos de consumo, envelopes vermelhos da plataforma e ativos digitais são mutuamente independentes; os direitos estão sujeitos às regras e ao conteúdo exibido nas páginas vigentes. Não há compromisso de rendimento fixo, garantia de capital, valorização de ativos ou elegibilidade para saque.",
+    "‘Bem-estar’ refere-se à qualidade dos alimentos, às informações nutricionais e às direções de pesquisa e desenvolvimento industrial — não constitui promessa de diagnóstico, tratamento ou eficácia farmacêutica.",
+    "O retorno de dados de produção e comercialização para os planos de produção é uma direção de construção contínua; não se afirma que o Aimaimai já controla automaticamente os equipamentos de produção."
+  ],
+  "chapters": [
+    {
+      "id": "strategy",
+      "label": "Estratégia corporativa",
+      "title": "Permitir que a IA acompanhe cada etapa, do campo à mesa",
+      "description": "Com a agricultura como base e a tecnologia como impulso, conectando serviços de produção, circulação de produtos e demandas do consumidor.",
+      "visual": "vision",
+      "stage": "Estratégia corporativa e arranjo industrial",
+      "sources": [
+        "about",
+        "business",
+        "industry"
+      ],
+      "points": [
+        "Sinergia entre pesquisa e desenvolvimento tecnológicos e serviços produtivos",
+        "Cultivo/criação, processamento e circulação conectados em cadeia",
+        "Impulsionar a modernização do setor com necessidades reais"
+      ],
+      "narration": [
+        "Comecemos pela estratégia corporativa. A entidade operacional da Huahai AgriTech é a Shenzhen Huahai Agricultural Science and Technology Group Co., Ltd.",
+        "Segundo a descrição no site oficial da empresa, o grupo foi fundado em 2017 e é uma empresa de Shenzhen destinada ao apoio ao Xinjiang, com foco central na integração entre IA e agricultura.",
+        "A Huahai AgriTech busca conectar pesquisa e desenvolvimento tecnológico, serviços produtivos, comércio e circulação, bem como colaboração setorial, para que as informações fluam ao longo da cadeia produtiva agrícola.",
+        "A extremidade produtiva preocupa-se com como cultivar e criar adequadamente, como identificar riscos e como acumular continuamente registros produtivos confiáveis.",
+        "A ponta de circulação preocupa-se com como expressar a qualidade, como classificar os produtos e como coordenar estoque, pedidos e execução.",
+        "A extremidade de consumo preocupa-se com o que está sendo comprado, sua origem, se atende às necessidades individuais e como obter serviço caso surjam problemas.",
+        "Ao conectar essas questões, obtemos uma perspectiva de cadeia produtiva completa, do campo até a mesa.",
+        "A estrutura industrial apresentada no site inclui criação de animais de produção, aquicultura e cultivo de arroz tolerante ao sal (‘hai shui dao’), estendendo-se à biologia sintética, processamento de produtos agrícolas e serviços confiáveis de dados.",
+        "Diante desses diferentes cenários, a direção estratégica da Huahai é formar progressivamente um sistema colaborativo capaz de acumular dados, apoiar decisões, organizar o abastecimento e atender consumidores.",
+        "Nesse contexto, o Aimaimai é um plataforma essencial voltado para o consumo e as transações, conectando os produtos da origem e dos comerciantes às necessidades cotidianas dos consumidores.",
+        "O que se apresenta aqui são a estratégia institucional e as direções de construção. A cobertura real de bases, os resultados de projetos específicos e os efeitos operacionais devem ser verificados com base em projetos concretos e em documentos oficiais de aceitação."
+      ]
+    },
+    {
+      "id": "values",
+      "label": "Princípios da empresa",
+      "title": "Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar",
+      "description": "Resolver com tecnologia problemas específicos da agricultura, garantir que as informações sobre qualidade possam ser verificadas e assegurar que o serviço se concretize em cada transação.",
+      "visual": "values",
+      "stage": "Princípios públicos da empresa",
+      "sources": [
+        "about",
+        "business"
+      ],
+      "points": [
+        "Avançar a agricultura com tecnologia: atender problemas reais de produção",
+        "Impulsionado por IA: colaboração entre dados e experiência especializada",
+        "Priorizar a segurança alimentar: dar ênfase ao registro na origem e ao longo do processo"
+      ],
+      "narration": [
+        "A premissa central da Huahai AgriTech é avançar a agricultura com tecnologia, capacitar com IA e priorizar a segurança alimentar.",
+        "Avançar a agricultura com tecnologia significa que a tecnologia deve responder a problemas reais enfrentados no campo.",
+        "Por exemplo: os dados ambientais podem ser visualizados em tempo hábil? Anomalias podem ser detectadas mais precocemente? Os registros de produção podem ser facilmente armazenados e consultados?",
+        "Para avaliar o valor técnico, deve-se observar os resultados em cenários reais, não apenas a quantidade de funcionalidades do sistema.",
+        "Impulsionado por IA significa fazer com que dados, modelos e experiência especializada trabalhem em conjunto.",
+        "A IA pode ajudar a compreender informações, organizar evidências e gerar sugestões, além de permitir que o consumidor expresse suas necessidades de seleção de forma mais conveniente.",
+        "Nas operações produtivas, as recomendações de IA ainda devem ser avaliadas considerando a qualidade dos dados, a experiência agronômica e as condições dos equipamentos, e precisam de confirmação humana.",
+        "‘Segurança alimentar em primeiro lugar’ implica valorizar a origem, o processo produtivo, as informações de análise laboratorial, os registros logísticos e os mecanismos de rastreabilidade e atendimento após eventual ocorrência de problemas.",
+        "Registros digitais podem auxiliar na verificação dos processos, mas a integridade dos registros não implica automaticamente conformidade de qualidade.",
+        "As conclusões de ensaios devem corresponder a lotes específicos e a relatórios válidos; a divulgação de produtos também deve estar alinhada com evidências reais.",
+        "Para o consumidor, esses princípios devem se traduzir em informações de produtos mais claras, processos transacionais mais transparentes e experiências de serviço mais confiáveis.",
+        "A Huahai AgriTech pretende concretizar essas premissas em etapas específicas de produção, circulação e consumo, por meio de investimentos contínuos em tecnologia e parcerias setoriais."
+      ]
+    },
+    {
+      "id": "technology",
+      "label": "Rota tecnológica",
+      "title": "Percepção, conexão, compreensão, tomada de decisão e retroalimentação",
+      "description": "A inteligência edge e a IA em nuvem atuam em conjunto, oferecendo suporte interpretável e rastreável às etapas de produção e comercialização.",
+      "visual": "architecture",
+      "stage": "Rota tecnológica; capacidades específicas conforme a aceitação do projeto",
+      "sources": [
+        "technology",
+        "product",
+        "iot"
+      ],
+      "points": [
+        "Sensores e gateways conectam-se ao local agrícola",
+        "Qualidade dos dados e restrições impostas pelas regras de negócios às sugestões da IA",
+        "Serviços produtivos e serviços de consumo têm limites próprios"
+      ],
+      "narration": [
+        "A trajetória tecnológica da Huahai pode ser compreendida em cinco etapas: percepção, conexão, compreensão, tomada de decisão e feedback.",
+        "A camada de percepção obtém informações sobre o ambiente, os processos produtivos e os lotes de produtos por meio de sensores, imagens e registros manuais.",
+        "A faixa de medição, as condições de instalação e o estado de calibração de equipamentos distintos afetam diretamente se os dados podem ser utilizados para tomada de decisão.",
+        "A camada de conexão utiliza um gateway inteligente edge para interligar equipamentos locais à plataforma, realizando funções como integração de dispositivos, transmissão de dados e recuperação automática após interrupções.",
+        "As capacidades edge podem ser entendidas como um ‘cérebro AI’ local, enquanto as capacidades em nuvem correspondem ao ‘cérebro AI’ centralizado, responsável por consolidação e análise.",
+        "Esta é uma explicação simplificada da divisão técnica de responsabilidades; algoritmos específicos e capacidades de controle devem ser validados caso a caso.",
+        "A camada de compreensão organiza mudanças ambientais, registros produtivos, informações sobre produtos e contexto operacional, permitindo que os modelos operem dentro de um escopo informativo bem definido.",
+        "A tomada de decisão exige que as sugestões de IA sejam combinadas com regras de negócio, requisitos agronômicos e confirmação humana, gerando um julgamento auxiliar explicável.",
+        "A camada de feedback registra os resultados da execução, os resultados dos serviços e as mudanças posteriores, fornecendo subsídios para melhorias futuras.",
+        "Na Aimaimai, o código atual já incorpora reconhecimento de intenções por voz, consulta de produtos, orientação orçamentária e diálogos com IA — cobrindo toda essa cadeia funcional.",
+        "No campo agrícola, o controle automático envolve ainda confirmação de operação dos equipamentos, controles de permissão, mecanismos de interrupção e aceitação formal da operação real — não bastando apenas uma recomendação da IA para considerar a ação concluída.",
+        "O site também apresenta áreas de colaboração como biologia sintética, rastreabilidade confiável, computação com proteção da privacidade, e finanças e seguros. Essas áreas precisam avançar gradualmente, conforme as qualificações, as parcerias e as condições de implementação de cada uma."
+      ]
+    },
+    {
+      "id": "product",
+      "label": "Produtos Aimaimai",
+      "title": "Levar produtos de qualidade provenientes das regiões produtoras para o cotidiano das pessoas",
+      "description": "O aplicativo do comprador e o mini-programa do WeChat conectam as demandas dos consumidores; o painel do vendedor e o painel de gestão organizam produtos, transações e serviços.",
+      "visual": "product",
+      "stage": "Verificação conforme o código; a disponibilidade online refere-se à versão atual.",
+      "sources": [
+        "product"
+      ],
+      "points": [
+        "Comprador: descoberta, seleção, pedidos e serviços",
+        "Vendedor: produtos, estoque, pedidos e execução logística",
+        "Plataforma: revisão, operação e coordenação de serviços"
+      ],
+      "narration": [
+        "A seguir, apresentamos o produto Aimaimai. Trata-se de um sistema de comércio eletrônico agrícola multi-loja.",
+        "O aplicativo do comprador, o mini-programa do WeChat, o painel do vendedor e o painel de gestão estão todos conectados a um mesmo backend comercial unificado.",
+        "Para o comprador, o produto oferece serviços transacionais completos: descoberta de itens, busca, visualização de detalhes, carrinho de compras, finalização de pedido, acompanhamento de pedidos e pós-venda.",
+        "O aplicativo e o mini-programa do WeChat atendem a hábitos distintos de uso; as páginas específicas e as capacidades de IA seguem as versões respectivas.",
+        "Para o vendedor, o painel administrativo gerencia informações dos produtos, estoque e especificações, execução de pedidos e gestão de serviços aos comerciantes.",
+        "Para a plataforma, o painel administrativo assume responsabilidades como revisão de comerciantes e produtos, operação de pedidos e coordenação de serviços.",
+        "A IA é uma capacidade auxiliar que conecta essas experiências. O usuário pode expressar, em linguagem natural, demandas de busca, orientação orçamentária ou operações na interface.",
+        "O back-end converte essas expressões em intenções e parâmetros restritos, direcionando-as aos respectivos fluxos de produtos e negócios.",
+        "Observa-se que alguns módulos de recomendação genérica ainda estão implementados apenas como espaços reservados; portanto, não é adequado descrever todas as recomendações como resultado de um mecanismo personalizado de IA já concluído.",
+        "A funcionalidade de rastreabilidade depende de lotes de produtos e registros de processos efetivamente associados, e seu alcance de exibição depende das informações válidas já inseridas pelo comerciante.",
+        "Direitos de associado, pontos de consumo, cupons digitais da plataforma e ativos digitais seguem regras próprias; não podem ser considerados um único saldo nem descritos como promessa de rendimento fixo.",
+        "Na ecologia Huahai, a Aimaimai tem como posicionamento conectar de forma mais fluida as informações sobre produtos, as demandas de consumo, os processos de transação e o pós-venda."
+      ]
+    },
+    {
+      "id": "chain",
+      "label": "Cadeia completa de produção, processamento, distribuição e vendas impulsionada por IA",
+      "title": "Tornar a demanda visível e a oferta fundamentada",
+      "description": "Conectando cultivo, processamento, vendas e feedback por meio de dados rastreáveis, construindo progressivamente um ciclo fechado de colaboração entre oferta e demanda.",
+      "visual": "chain",
+      "stage": "Direção de construção da colaboração integral na cadeia de produção e comercialização",
+      "sources": [
+        "about",
+        "business",
+        "technology",
+        "product"
+      ],
+      "points": [
+        "Registros produtivos servem de base para a expressão de qualidade",
+        "Produtos e execução logística conectam a oferta à demanda",
+        "A retroalimentação do consumo auxilia no planejamento da próxima rodada produtiva"
+      ],
+      "narration": [
+        "O modelo de cadeia completa de produção, processamento, distribuição e vendas impulsionada por IA integra produção, processamento, circulação, vendas e feedback do consumidor sob uma mesma perspectiva colaborativa.",
+        "Primeira etapa: acumular, na ponta da produção, registros sobre ambiente, insumos, atividades agrícolas e processo de crescimento, fornecendo base para julgamentos gerenciais.",
+        "Segunda etapa: gerar informações sobre classificação, lote, testes e embalagem nas etapas de processamento e controle de qualidade, tornando mais fácil expressar com precisão as características do produto.",
+        "Terceira etapa: organizar mercadorias, estoque, pedidos e execução nas etapas de circulação e vendas, conectando a oferta à demanda real.",
+        "Quarta etapa: coletar, no ponto de consumo, feedbacks sobre demanda, avaliações, compras repetidas e serviços — dentro dos limites legais e com autorização válida.",
+        "Quinta etapa: utilizar esses retornos para analisar mudanças na oferta e na demanda, servindo como referência para seleção futura de produtos, estoque e planejamento produtivo.",
+        "Exemplo de cenário de implantação: uma base de criação registra parâmetros de qualidade da água e lotes de criação; produtos aprovados passam por classificação e testes antes de entrar no canal de vendas.",
+        "Os consumidores acessam informações sobre produtos na Aimaimai, concluem compras e fornecem feedback sobre especificação, sabor e experiência de serviço.",
+        "Unidades produtivas e comerciantes ajustam, com base em pedidos reais e feedbacks, suas futuras combinações de produtos e ritmos de fornecimento.",
+        "A IA pode auxiliar nesse processo na organização de informações, compreensão de demandas, identificação de anomalias e formulação de sugestões de planejamento.",
+        "Esse ciclo fechado depende de dados de equipamentos estáveis, registros operacionais completos e autorizações explícitas para uso de dados — não é suficiente simplesmente integrar um grande modelo de linguagem.",
+        "Atualmente, a Aimaimai já fornece a base de código relacionada a consumo e transação; a colaboração automática entre planejamento produtivo e feedback dos consumidores é uma direção de construção contínua.",
+        "A Huahai AgriTech busca, progressivamente, apoiar a organização da oferta com base em demandas reais, expressar a qualidade com base em evidências produtivas e aprimorar ciclos subsequentes com base em feedbacks."
+      ]
+    },
+    {
+      "id": "health",
+      "label": "Ecossistema agrícola de bem-estar",
+      "title": "Da qualidade na origem à mesa familiar",
+      "description": "Conectar produção verde, processamento alimentar, informações nutricionais e serviços de consumo, explorando um ecossistema colaborativo entre agricultura e bem-estar.",
+      "visual": "health",
+      "stage": "Ecossistema e direção de pesquisa e desenvolvimento",
+      "sources": [
+        "technology",
+        "industry",
+        "business",
+        "product"
+      ],
+      "points": [
+        "Origem: ênfase nas condições produtivas e no registro de qualidade",
+        "Produtos: colaboração em processamento alimentar e pesquisa & desenvolvimento",
+        "Família: informações claras e serviços convenientes"
+      ],
+      "narration": [
+        "Por fim, vamos conhecer o ecossistema agrícola de grande bem-estar (agricultura/alimentos/bem-estar) da Huahai AgriTech, impulsionado por IA.",
+        "Essa abordagem tem como base a agricultura e os alimentos, com foco nas condições iniciais de produção, na qualidade alimentar, nas informações nutricionais e nos serviços de consumo cotidiano.",
+        "Na origem, insumos sustentáveis, gestão da produção e registros processuais constituem a base essencial para discussões sobre qualidade.",
+        "Na ponta dos produtos, o site institucional destaca o processamento profundo de produtos agrícolas e alimentos, além de pesquisas e posicionamentos estratégicos em alimentos funcionais e ingredientes com dupla finalidade alimentar e medicinal (‘yaoshi tongyuan’).",
+        "Essas direções exigem aplicação concreta, combinando matérias-primas específicas, evidências de pesquisa e desenvolvimento, normas alimentares e as respectivas qualificações regulatórias.",
+        "Na ponta do consumidor, a Aimaimai ajuda os usuários a visualizar informações sobre produtos, expressar preferências de compra e obter suporte nas transações e nos serviços.",
+        "A IA pode auxiliar na interpretação de informações já existentes e na organização de critérios de seleção, tornando mais fácil a compreensão de dados técnicos complexos sobre produtos.",
+        "No entanto, a descrição de alimentos não substitui diagnóstico médico, e alimentos comuns não podem ser apresentados como capazes de tratar doenças.",
+        "Diante de necessidades específicas de saúde, a seleção de produtos ainda deve considerar cuidadosamente as informações constantes dos rótulos e orientações profissionais — não se deve tomar respostas de IA como substitutas de planos individuais de tratamento.",
+        "Esse ecossistema também exige a participação conjunta de bases agrícolas, empresas de alimentos, instituições de pesquisa, serviços de análise laboratorial e parceiros logísticos.",
+        "A Huahai AgriTech busca, por meio da tecnologia e da colaboração setorial, estabelecer conexões mais claras entre produção na origem, pesquisa e desenvolvimento de produtos, informações confiáveis e consumo familiar.",
+        "Trata-se de uma rota ecológica que exige construção contínua e validação constante; projetos e capacidades de produto específicos devem ser avaliados com base em qualificações reais, documentação técnica e evidências operacionais concretas."
+      ]
+    }
+  ],
+  "faq": [
+    {
+      "q": "Qual é a estratégia central da Huahai AgriTech?",
+      "topic": "strategy",
+      "a": "A Huahai AgriTech tem como núcleo a integração entre IA e agricultura, conectando pesquisa e desenvolvimento tecnológico, serviços produtivos, comércio e circulação, bem como colaboração setorial. O site oficial da empresa apresenta sua atuação em cadeias produtivas como avicultura, aquicultura e arroz tolerante ao sal; a Aimaimai é responsável pelos serviços de consumo e transação. A coordenação completa entre produção e comercialização ainda depende da construção e validação faseadas de cada componente."
+    },
+    {
+      "q": "Por que adotar uma cadeia completa de produção, processamento, distribuição e vendas?",
+      "topic": "chain",
+      "a": "O lado da produção precisa conhecer demandas reais; o lado do consumo precisa conhecer qualidade e origem. A colaboração total entre produção e consumo busca conectar os dois lados por meio de registros de lotes, testes, produtos, pedidos e feedback, reduzindo lacunas informacionais e fornecendo subsídios para estoque, seleção de produtos e planejamento produtivo."
+    },
+    {
+      "q": "Qual é a diferença entre o 'cérebro pequeno de IA' e o 'cérebro grande de IA'?",
+      "topic": "technology",
+      "a": "'Cérebro pequeno de IA' é uma denominação informal para capacidades de borda, conectando equipamentos locais e tratando a conexão e a transmissão de dados. 'Cérebro grande de IA' refere-se à capacidade centralizada na nuvem de consolidação, análise, compreensão e apoio à tomada de decisões. Eles não constituem uma comprovação de controle automático já concluído; os algoritmos específicos e as cadeias de execução nos equipamentos devem ser validados separadamente."
+    },
+    {
+      "q": "Qual é a relação entre Aimaimai e Huahai AgriTech?",
+      "topic": "product",
+      "a": "A Aimaimai é a plataforma de comércio eletrônico da Huahai voltada para consumidores e comerciantes, oferecendo fluxos relacionados à seleção, transação e serviço. O escopo estratégico da Huahai inclui também produção agrícola, pesquisa e desenvolvimento tecnológico e colaboração industrial; o fechamento automático entre extremidade produtiva e extremidade de transação ainda requer integração contínua e validação."
+    },
+    {
+      "q": "Quais aplicativos e interfaces a Aimaimai oferece?",
+      "topic": "product",
+      "a": "O sistema inclui um aplicativo para compradores, um mini-programa WeChat, um painel de administração para vendedores e um painel de administração geral, todos compartilhando o mesmo backend operacional. As telas e as capacidades de IA disponíveis nos aplicativos e mini-programas variam conforme a versão; a disponibilidade online em cada plataforma segue a versão atual de cada uma."
+    },
+    {
+      "q": "A IA pode gerenciar automaticamente minha fazenda?",
+      "topic": "technology",
+      "a": "A apresentação atual não sustenta essa conclusão. A IA pode auxiliar na organização de dados, na detecção de anomalias e na formulação de sugestões; no entanto, operações reais em equipamentos exigem condições completas, como qualidade dos dados, confirmação humana, permissões, confirmações de recebimento e mecanismos de interrupção, além de aceitação no local real."
+    },
+    {
+      "q": "Todos os produtos podem ser rastreados integralmente ao longo de toda a cadeia?",
+      "topic": "product",
+      "a": "Não é possível fazer tal compromisso unificado. O sistema possui implementações de consulta de registros no código-fonte por lote e por etapa, mas o que é exibido para cada produto depende dos dados efetivamente registrados, revisados e vinculados. Um registro digital ou sua inclusão em blockchain não equivale, por si só, à veracidade intrínseca das informações de origem."
+    },
+    {
+      "q": "O que exatamente o ecossistema agrícola de bem-estar faz?",
+      "topic": "health",
+      "a": "Focada em agricultura e alimentos, a Huahai AgriTech conecta produção na origem, registro de qualidade, pesquisa e desenvolvimento de processamento alimentar, informações nutricionais e serviços ao consumidor. O site institucional apresenta direções como alimentos funcionais e ingredientes com dupla finalidade alimentar e medicinal (‘yaoshi tongyuan’), mas produtos específicos exigem evidências e qualificações correspondentes; não se deve interpretar a descrição do ecossistema como uma promessa de efeitos terapêuticos."
+    },
+    {
+      "q": "Pontos de consumo, envelopes vermelhos e ativos digitais são iguais?",
+      "topic": "product",
+      "a": "São diferentes. Os três são direitos ou registros de negócios independentes, cada um com suas próprias regras de uso, liberação e tratamento. As condições específicas de elegibilidade e a abrangência de uso seguem as regras vigentes na plataforma; não podem ser considerados como um mesmo saldo, nem configuram promessa de rendimento fixo ou valorização."
+    },
+    {
+      "q": "Você está descrevendo funcionalidades já disponibilizadas?",
+      "topic": "strategy",
+      "a": "O conteúdo é dividido em: estratégia pública no site oficial, capacidades verificáveis no código-fonte e direções de construção contínua. A existência de código não implica ativação online atual; as capacidades dos equipamentos também exigem validação real. Cada capítulo já indica seu respectivo escopo, sem fornecer dados verificados sobre escala de cobertura produtiva ou redução de custos/aumento de produtividade."
+    },
+    {
+      "q": "Alimentos comuns podem tratar doenças?",
+      "topic": "health",
+      "a": "Esta apresentação institucional não sustenta conclusões sobre tratamento de doenças por meio de alimentos. Posso explicar informações sobre produtos já existentes e sobre a direção de pesquisa da Huahai no âmbito do ecossistema agricultura/alimentos/bem-estar, mas não forneço diagnóstico individual, tratamento ou promessas de eficácia terapêutica."
+    },
+    {
+      "q": "Como os parceiros podem participar?",
+      "topic": "chain",
+      "a": "É possível negociar com a empresa em cenários específicos, como digitalização de fazendas, documentação de produtos e controle de qualidade, gestão de produtos comerciais e serviços logísticos, pesquisa e desenvolvimento de alimentos ou pesquisas tecnológicas. O escopo e os resultados da colaboração serão definidos conforme acordos específicos, qualificações exigidas e aceitação formal dos projetos."
+    }
+  ],
+  "locale": "pt",
+  "translationSourceHash": "50c53f1272ff0bc166cdf396b4461433479212727fbb2e8141a16c6ab6d08046"
+}

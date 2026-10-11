@@ -8,7 +8,7 @@ const root=path.dirname(fileURLToPath(import.meta.url)),build=path.join(root,pro
 const ffmpeg=process.env.HUAHAI_FFMPEG||'ffmpeg',ffprobe=process.env.HUAHAI_FFPROBE||'ffprobe';
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const voice=path.join(build,'promo-master.wav'),music=path.join(build,'brand-music.wav'),mix=path.join(build,'final-mix.wav'),temp=path.join(build,'final-mix.verify.wav');
-const voiceHash=sha(voice),musicHash=sha(music),knowledgeHash=sha(path.join(root,'promo-knowledge.json'));
+const voiceHash=sha(voice),musicHash=sha(music),knowledgeHash=sha(path.join(root,process.env.HUAHAI_LOCALE?'locales/'+process.env.HUAHAI_LOCALE+'/promo-knowledge.json':'promo-knowledge.json'));
 const manifest=JSON.parse(fs.readFileSync(path.join(build,'voice-manifest.json')));
 if(manifest.audioHash!==voiceHash||manifest.knowledgeHash!==knowledgeHash)throw new Error('当前讲稿与配音来源不匹配');
 const filter='[0:a]loudnorm=I=-17:TP=-1.5:LRA=7,aformat=sample_rates=24000:sample_fmts=fltp:channel_layouts=stereo[voice];[1:a]aformat=sample_rates=24000:sample_fmts=fltp:channel_layouts=stereo,volume=0.35[music];[voice][music]amix=inputs=2:duration=longest:dropout_transition=0,volume=2,alimiter=limit=0.95:level=false[out]';

@@ -7,3 +7,16 @@ media/*
 build/
 .env*
 !.env.example
+
+!media/huahai-brand-film-en.srt
+!media/huahai-brand-film-en.vtt
+!media/brand-film-en-cover.png
+!media/huahai-brand-film-es.srt
+!media/huahai-brand-film-es.vtt
+!media/brand-film-es-cover.png
+!media/huahai-brand-film-pt.srt
+!media/huahai-brand-film-pt.vtt
+!media/brand-film-pt-cover.png
+!media/huahai-brand-film-ja.srt
+!media/huahai-brand-film-ja.vtt
+!media/brand-film-ja-cover.png

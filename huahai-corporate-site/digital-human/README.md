@@ -1,5 +1,13 @@
 # 华海农科数字讲解员 · 小犀
 
+## 五语介绍（2026-10-11）
+
+讲解、讲稿、FAQ、字幕和完整品牌影片支持中文、英语、西班牙语、巴西葡萄牙语和日语；官网十语导航与讲解五语独立，未提供讲解的语种会明确提示。英语Jennifer女声、西语Sonrisa女声、葡语Andre男声、日语Ono Anna女声，中文保留原版本。首期仍只有资料问答，不接公网实时AI。
+
+`locales/<lang>/`是公开文本、声线与媒体清单。`build-multilingual-media.mjs <lang> guide|promo`生成或复用带原声Hash的配音；`HUAHAI_LOCALE=<lang>`与`HUAHAI_VOICE_BUILD=build/multilingual/<lang>`用于配乐、混音、连续背景和品牌片制作。公开媒体发布由`publish-multilingual-media.mjs <lang>`执行，只有当前正文/声线/混音/影片绑定一致时才上传不可变对象；MP3转换收据可避免重复编码。凭据只从忽略配置和进程环境读取。
+
+语音回识不是完整人工听审。缓存、原片和制作脚本不随官网白名单公开。完整设计与验收见`docs/features/huahai-digital-human.md`。以下保留中文首期与制作历史说明。
+
 ## 官网首期发布（2026-10-04）
 
 用户选择先上线讲解、视频和常见问题，实时AI后续接入。首页首屏右侧展示完整小犀，两按钮分别进入`/digital-human/`和`/digital-human/?view=film`；6个主内容页面共用导航入口。导航与页面元信息沿用十语切换；六主题讲解与配音保持中文并在页面明确标注。
@@ -16,7 +24,7 @@
 
 `media/stock-clips/manifest.json`记录Pexels/Mixkit Free素材、许可与Hash。原片不再分发，AI关键帧及提示词保存在`assets/film-scenes/`。软件解码避免旧FFmpeg硬解＋硬编引入的冻结；仅帧率/PTS或解码成功不能代替实际相邻帧检查。声线绑定也不能代替完整人工听审。
 
-依次运行`build-consistent-voice.mjs`、`compose-brand-music.py`、`mix-brand-audio.mjs`、`build-content-film.mjs --background --frames --smoke --final`；配乐/混音使用`HUAHAI_VOICE_BUILD=build/promo-consistent`。媒体重制需要本地原片/配音缓存和已授权的模型进程凭据，未知付费请求结果不得盲重发。公开网页播放不需要这些缓存或凭据。
+依次运行`build-consistent-voice.mjs`、`compose-brand-music.py`、`mix-brand-audio.mjs`、`build-content-film.mjs --background --frames`、`build-content-film.mjs --smoke`、`build-content-film.mjs --final`；配乐/混音使用`HUAHAI_VOICE_BUILD=build/promo-consistent`。媒体重制需要本地原片/配音缓存和已授权的模型进程凭据，未知付费请求结果不得盲重发。公开网页播放不需要这些缓存或凭据。
 
 以下为详细主题配音的制作说明。
 
@@ -45,3 +53,5 @@ Paraformer-v2回识词级时间戳，原稿规范化后进行编辑距离与逐�
 `knowledge.json`提供角色、六章逐句稿、12条FAQ、来源和边界。公司介绍引用[关于页](https://huahainongke.com/about.html)、[业务页](https://huahainongke.com/business.html)、[技术页](https://huahainongke.com/technology.html)与[产业页](https://huahainongke.com/industry.html)，不作为生产验收证明。爱买买依据`5b0125018091779a2ed20b23bc7f2bff5d9e3665`代码核查，保留推荐占位、端差异、权益独立与溯源数据条件。产销自动反馈为建设方向。官网`whitepaper.html`本次404，未作已发布来源。
 
 设计与验收见`docs/features/huahai-digital-human.md`。本地完成不等于官网发布，不触发App OTA、小程序发布或业务数据变更。
+
+局部产品演示排版修复可用`--patch-products`，只处理已验证父片的指定关键帧区间。它验证父片、当前分镜、背景、渲染器、逐帧PTS和原AAC；输入变动时拒绝继续。实际编码帧数记录为`encodedFrames`，规划背景上界为`totalFrames`。最终片源、布局和播放仍须独立抽检。

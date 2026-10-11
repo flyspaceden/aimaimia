@@ -1,0 +1,9 @@
+{
+  "version": "20261011-language-voices-v2",
+  "model": "qwen3-tts-flash",
+  "language": "English",
+  "profileHash": "3c7939ac6861a902f142a602347bbbe079fa8d05b049b3439cab644157ebdda2",
+  "provider": "dashscope",
+  "voiceType": "system",
+  "voice": "Jennifer"
+}

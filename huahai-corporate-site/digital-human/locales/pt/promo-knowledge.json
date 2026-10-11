@@ -1,0 +1,91 @@
+{
+  "version": "2026-10-04-brand-film-full-v1",
+  "company": "Shenzhen Huahai AgriTech Group Co., Ltd.",
+  "direction": "Apresentação institucional completa da marca, mantendo as seis direções estratégicas; a duração segue o conteúdo integral, sem predefinição de três minutos. A comunicação valoriza cenários concretos, dimensão industrial e benefícios para a família — evitando narrações no estilo de palestra técnica.",
+  "sources": [
+    "https://huahainongke.com/about.html",
+    "https://huahainongke.com/business.html",
+    "https://huahainongke.com/technology.html",
+    "https://huahainongke.com/industry.html",
+    "爱买买main代码5b0125018091779a2ed20b23bc7f2bff5d9e3665"
+  ],
+  "boundaries": [
+    "As imagens sintéticas são ilustrações conceituais, não filmagens reais da Huahai nem resultados de aceitação de projetos.",
+    "As telas da Aimaimai ilustram o fluxo de produção de código; as capacidades de cada extremidade estão sujeitas à versão atual e à aceitação operacional.",
+    "A colaboração integral na cadeia de produção e comercialização e o ecossistema agrícola de bem-estar são descritos como direções de construção; não há promessas de rendimento, controle automático ou tratamento de doenças."
+  ],
+  "chapters": [
+    {
+      "id": "vision",
+      "label": "Agricultura conectando uma vida melhor",
+      "narration": [
+        "De um único grão de semente à mesa de uma família; de um campo à vida de milhares de lares. Cada esforço na agricultura merece ser tratado com seriedade.",
+        "Huahai AgriTech: tornando a tecnologia mais próxima da agricultura e a qualidade mais visível.",
+        "Shenzhen Huahai AgriTech Group Co., Ltd., fundada em 2017. Como empresa de apoio de Shenzhen à Região Autônoma Uigur de Xinjiang, a Huahai tem a agricultura como base e a IA como impulso, conectando pesquisa e desenvolvimento tecnológico, serviços produtivos, circulação comercial e colaboração industrial.",
+        "A partir de cultivos, criação de animais de produção e aquicultura, a Huahai AgriTech explora conexões industriais que abrangem processamento, pesquisa e desenvolvimento de alimentos e serviços de dados — avançando rumo à integração do campo à mesa.",
+        "A agricultura vai além do mero ato de produzir. O esforço no campo precisa ser compreendido pelo mercado; por sua vez, as necessidades do mercado merecem ser ouvidas pela origem. Conectar essas duas pontas é o ponto de partida da Huahai ao pensar o desenvolvimento do setor.",
+        "Para produtores, focamos na gestão e no abastecimento; para comerciantes, na clareza da apresentação dos produtos e na colaboração logística; para famílias, nas informações, nas escolhas e nos serviços. Conectar essas necessidades por meio da tecnologia é a direção contínua de construção da Huahai."
+      ]
+    },
+    {
+      "id": "values",
+      "label": "Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar",
+      "narration": [
+        "Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar. Este é o compromisso da Huahai AgriTech.",
+        "O valor da tecnologia manifesta-se nos campos, nas águas e em cada produção e serviço reais. Observar as mudanças ambientais, registrar as práticas agrícolas, valorizar a origem e a qualidade dos produtos — para que cada etapa seja realizada com maior atenção.",
+        "Avançar a agricultura com tecnologia significa levar as ferramentas para onde realmente são necessárias. Facilitar que os profissionais no local compreendam melhor o processo produtivo e permitir que o conhecimento acumulado no dia a dia tenha a oportunidade de gerar valor em conjunto com os dados.",
+        "Impulsionado por IA significa tornar informações complexas mais fáceis de compreender. Diante de diferentes culturas, ambientes distintos de criação e demandas variadas dos consumidores, a tecnologia deve apoiar as pessoas na tomada de decisões mais fundamentadas.",
+        "‘Segurança alimentar em primeiro lugar’ significa priorizar a atenção à qualidade em cada etapa: produção, processamento e circulação. Desde os dados de origem até as informações por lote, desde a descrição do produto até o pós-venda, tratamos com seriedade cada produto — e com igual seriedade, cada família."
+      ]
+    },
+    {
+      "id": "technology",
+      "label": "Tornar os dados um apoio para o setor",
+      "narration": [
+        "No campo agrícola, sensores e gateways inteligentes ajudam a acompanhar mudanças no campo e na água; na plataforma de dados, a inteligência artificial auxilia na organização das informações, oferecendo subsídios para gestão e tomada de decisão.",
+        "Fazer com que dados e experiência especializada atuem em conjunto, transformando a tecnologia agrícola em um apoio efetivo para cultivo, criação animal e serviços setoriais.",
+        "A conexão entre campo e plataforma constitui a base desta abordagem. Organizar informações dispersas em campos, viveiros e etapas operacionais permite fundamentar com maior clareza a colaboração industrial.",
+        "Além de agricultura e alimentos, a Huahai AgriTech também atua em biologia sintética, processamento de produtos agrícolas e serviços confiáveis de informação — integrando tanto tecnologias digitais quanto matérias-primas, produtos e o próprio setor industrial.",
+        "Esperamos que, ao integrar a tecnologia à agricultura, o resultado não seja uma sequência de termos difíceis de entender, mas sim processos mais fáceis de acompanhar, julgamentos mais fundamentados e uma comunicação mais fluida entre as pessoas e o setor."
+      ]
+    },
+    {
+      "id": "product",
+      "label": "Aimaimai: conectando bons produtos às necessidades do dia a dia",
+      "narration": [
+        "Partindo da origem, também precisamos entrar na vida cotidiana. A Aimaimai é uma plataforma de comércio eletrônico essencial por meio da qual a Huahai AgriTech conecta produtos agrícolas, comerciantes e consumidores.",
+        "O aplicativo do comprador e o mini-programa do WeChat permitem que o consumidor conheça os produtos e expresse suas necessidades de seleção, conectando compras e serviços. O painel do vendedor e o painel de gestão organizam a colaboração entre comerciantes e plataforma, centrada em produtos, pedidos e execução.",
+        "Pesquise produtos, visualize informações ou descreva, em linguagem natural, o que deseja comprar. Conecte escolhas mais adequadas com informações mais claras.",
+        "Diante das refeições diárias, os consumidores frequentemente questionam: o que é este produto, quais são suas especificações, de onde ele vem e ele atende às suas necessidades de compra? As fichas técnicas dos produtos, as informações por lote e os acessos aos serviços constituem justamente o ponto inicial para responder a essas questões.",
+        "Diante da rotina operacional, os comerciantes precisam explicar claramente seus produtos, organizar adequadamente especificações e estoques, e integrar pedidos com a execução logística. A Aimaimai oferece, nesses pontos-chave, a infraestrutura de produtos e negócios para o comércio eletrônico agrícola.",
+        "Para a plataforma, a revisão de comerciantes e produtos, a operação de pedidos e a coordenação de serviços sustentam conjuntamente o processo transacional. Compradores, comerciantes e plataforma desempenham papéis distintos, mas colaboram na mesma cadeia de serviços.",
+        "A IA pode auxiliar na compreensão de buscas e demandas de seleção, conectando uma expressão natural à consulta de produtos e aos serviços correspondentes. Assim, a tecnologia se integra ao uso cotidiano, e as operações tornam-se mais alinhadas aos hábitos naturais de expressão das pessoas."
+      ]
+    },
+    {
+      "id": "chain",
+      "label": "Da produção ao consumo, permitindo que a colaboração crie conexões",
+      "narration": [
+        "Dos registros de produção à classificação, controle de qualidade e embalagem; das transações comerciais à logística de entrega e ao feedback do consumidor. A Huahai está explorando um modelo colaborativo de IA para toda a cadeia de produção e comercialização na agricultura.",
+        "Utilizar demandas reais como referência para organização da oferta; empregar informações sobre produção e produtos para expressar com clareza a qualidade; e incorporar feedbacks do consumidor para apoiar a próxima rodada de seleção de produtos, gestão de estoque e aprimoramento setorial.",
+        "Imagine a jornada de um produto aquícola: começa com o registro de cultivo em viveiros, passa por classificação e análise laboratorial, gera dados de lote e embalagem, e segue, por meio de serviços comerciais e transacionais, até a mesa familiar.",
+        "Consumidores prestam atenção à especificação, sabor e serviço; comerciantes focam em pedidos e execução; as origens produtivas concentram-se nos arranjos subsequentes de fornecimento. Ao conectar essas informações de forma organizada, obtém-se referência para a próxima rodada de composição de produtos e planejamento de fornecimento.",
+        "Essa é a colaboração setorial que a Huahai busca construir progressivamente: conectar oferta e demanda reais, utilizar dados de produção e de produtos para expressar qualidade, e apoiar melhorias contínuas por meio de feedback constante. A IA desempenha, nesse contexto, um papel auxiliar na compreensão de informações, na organização de necessidades e na formulação de sugestões."
+      ]
+    },
+    {
+      "id": "health",
+      "label": "Foco na origem, nos alimentos e na vida familiar",
+      "narration": [
+        "O ecossistema de bem-estar agrícola com IA da Huahai tem como base a agricultura e os alimentos, com foco na produção na origem, na qualidade dos alimentos, nas informações nutricionais e nos serviços de consumo cotidiano.",
+        "Desde insumos verdes e gestão da produção, passando por pesquisa e processamento alimentar, até a mesa familiar. A empresa Huahai pretende colaborar com bases agrícolas, empresas alimentares, instituições de pesquisa e parceiros do setor para explorar juntos as conexões entre tecnologia e vida cotidiana.",
+        "Para a família, ‘Bem-estar’ pode começar com o conhecimento sobre os alimentos: compreender as matérias-primas e sua origem, interpretar rótulos e dados nutricionais dos produtos, e desenvolver, nas escolhas cotidianas, pontos de atenção adequados ao seu contexto.",
+        "Para o setor produtivo, trata-se de uma rota que conecta produção agrícola, pesquisa e desenvolvimento de alimentos, processamento e serviços ao consumidor — valorizando o estudo aprofundado das matérias-primas, a clareza na comunicação das informações dos produtos e o acompanhamento contínuo das necessidades do cotidiano.",
+        "Essa trajetória ecológica exige construção contínua e a participação ativa de parceiros setoriais. A Huahai busca, por meio da tecnologia e da colaboração industrial, conectar a produção na origem, o desenvolvimento de produtos e o consumo familiar — passo a passo, aproximando a agricultura da vida cotidiana saudável e plena.",
+        "Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar. Huahai AgriTech, junto com você, para conectar a agricultura a uma vida melhor."
+      ]
+    }
+  ],
+  "locale": "pt",
+  "translationSourceHash": "feac471fd6b3d439e34798be3c2d9143eed1130353127b2c81d09e330c87fbed"
+}
