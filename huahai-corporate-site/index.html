@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/style.css?v=20261004-digital1" />
+  <link rel="stylesheet" href="assets/farming-calendar.css?v=20261010-v1" />
 </head>
 <body>
 
@@ -64,6 +65,16 @@
 </section>
 
 
+
+
+<section class="today-farming" id="today-farming">
+  <div class="container farming-strip">
+    <span class="farming-strip-term" data-today-term data-translation-ignore lang="zh-CN" dir="ltr">节气</span>
+    <div><h2>今日农事</h2><div data-translation-ignore lang="zh-CN" dir="ltr"><p data-today-date>农历与节气日历</p><p data-today-brief>认识节气，读懂农事。农事正文为中文原文。</p></div></div>
+    <button class="btn btn-secondary" type="button" data-open-farming aria-haspopup="dialog" disabled>查看农事日历</button>
+  </div>
+  <noscript data-translation-ignore lang="zh-CN" dir="ltr"><div class="container"><p>农历日期与节气需启用 JavaScript。可阅读<a href="https://www.cma.gov.cn/2011xwzx/2011xmtjj/202110/t20211029_4006706.html" target="_blank" rel="noopener noreferrer">节气与农耕文化</a>。</p></div></noscript>
+</section>
 
 <section class="section">
   <div class="container">
@@ -253,6 +264,7 @@
   </div>
 </footer>
 
-<script src="assets/script.js?v=20261005-nav1"></script>
+<script src="assets/script.js?v=20261010-farming1"></script>
+<script src="assets/farming-calendar.js?v=20261010-v1" defer></script>
 </body>
 </html>
