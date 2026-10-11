@@ -1,5 +1,5 @@
 /* 首页农事入口及中文阅读弹窗，不覆盖主导航、语言菜单或数字讲解。 */
-.today-farming{padding:24px 0;border-bottom:1px solid var(--color-border);background:#fff}
+.today-farming{scroll-margin-top:96px;padding:24px 0;border-bottom:1px solid var(--color-border);background:#fff}
 .today-farming .farming-strip{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:28px}
 .today-farming .farming-strip-term{font:600 38px/1.15 'Songti SC','STSong',serif;color:var(--color-primary);letter-spacing:.12em;padding-inline-end:26px;border-inline-end:1px solid var(--color-border-strong)}
 .today-farming h2{font:600 16px/1.5 var(--font-sans);margin:0 0 4px}.today-farming p{font-size:13px;color:var(--color-text-muted);margin:0;line-height:1.7}
