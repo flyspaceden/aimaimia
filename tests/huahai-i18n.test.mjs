@@ -9,7 +9,7 @@ import path from 'node:path';
 const { chromium } = await import(process.env.HUAHAI_PLAYWRIGHT_MODULE || 'playwright');
 const root = fileURLToPath(new URL('../huahai-corporate-site/', import.meta.url));
 const languages = ['zh-CN', 'en', 'ar', 'fr', 'de', 'ja', 'it', 'pt', 'es', 'zh-TW'];
-const pages = ['index', 'about', 'business', 'technology', 'industry', 'contact', 'privacy', 'terms'];
+const pages = ['index', 'about', 'business', 'technology', 'industry', 'contact', 'privacy', 'terms', 'health', 'agriculture', 'food-medicine', 'healthy-recipes'];
 const errors = [];
 let server, browser, base;
 before(async () => {
@@ -47,7 +47,7 @@ async function chooseLanguage(page, language) {
   await page.locator(`.language-option[data-code="${language}"]`).click();
 }
 
-test('all 8 pages render all 10 languages at 320, 390, 1100 and 1440 pixels', { timeout: 180000 }, async () => {
+test('all 12 pages render all 10 languages at 320, 390, 1100 and 1440 pixels', { timeout: 240000 }, async () => {
   const page = await newPage();
   for (const width of [320, 390, 1100, 1440]) {
     await page.setViewportSize({ width, height: 844 });
@@ -246,4 +246,110 @@ test('long certificate headings leave a fully scrollable viewer on small landsca
     }
   }
   await page.close();
+});
+
+test('library navigation supports desktop, compact windows, keyboard and blocked storage', async () => {
+  const page = await newPage(1100);
+  await page.addInitScript(() => Object.defineProperty(window, 'localStorage', { get() { throw new Error('Storage blocked'); } }));
+  await page.goto(`${base}/index.html?lang=zh-CN`);
+  await ready(page, 'zh-CN');
+  assert.equal(await page.locator('.nav').isVisible(), true, '1100px Chinese desktop retains the complete navigation');
+  assert.ok((await page.locator('.header-inner').boundingBox()).height < 80);
+  await page.locator('.nav-library-trigger').click();
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('.nav-library-menu a').first().evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.nav-library-menu').isVisible(), false);
+  assert.equal(await page.locator('.nav-library-trigger').evaluate(el => el === document.activeElement), true);
+  await page.goto(`${base}/index.html?lang=de`);
+  await ready(page, 'de');
+  if (await page.locator('.nav-toggle').isVisible()) await page.locator('.nav-toggle').click();
+  await page.locator('.nav-library-trigger').click();
+  await page.locator('.nav-library-menu a[data-route="agriculture.html"]').click();
+  await ready(page, 'de');
+  assert.equal(new URL(page.url()).searchParams.get('lang'), 'de');
+  assert.equal(await page.locator('.knowledge-hero h1').innerText(), '农事上下五千年');
+  await page.locator('.knowledge-tabs a[href*="food-medicine.html"]').click();
+  await ready(page, 'de');
+  assert.equal(new URL(page.url()).searchParams.get('lang'), 'de');
+  await page.setViewportSize({width:320,height:400});
+  await page.locator('.nav-toggle').click();
+  await page.locator('.nav-library-trigger').click();
+  await page.locator('.nav-library-menu a').last().scrollIntoViewIfNeeded();
+  await page.locator('.nav-library-menu a').last().click();
+  await ready(page, 'de');
+  assert.equal(new URL(page.url()).pathname, '/healthy-recipes.html');
+  await page.close();
+});
+
+test('food directory searches aliases, combines filters, paginates and shows food restrictions', async () => {
+  const page = await newPage();
+  await page.goto(`${base}/food-medicine.html`);
+  await page.locator('[data-herb-tools]').waitFor({state:'visible'});
+  const shown = page.locator('[data-herb]:not([hidden])');
+  assert.equal(await shown.count(),16);
+  await page.locator('[data-herb-next]').click();
+  assert.equal(await page.locator('[data-herb-page]').innerText(),'第2 / 7页');
+  assert.equal(await shown.first().locator('.herb-name').innerText(),'白果');
+  await page.locator('[data-herb-search]').fill('陈皮');
+  assert.equal(await shown.count(),1);assert.equal(await shown.first().locator('.herb-name').innerText(),'橘皮');
+  await page.locator('[data-herb-reset]').click();
+  await page.locator('[data-herb-year]').selectOption('2019');
+  assert.equal(await shown.count(),6);
+  await shown.first().locator('summary').click();
+  assert.match(await shown.first().innerText(),/仅作为香辛料和调味品使用/);
+  await page.locator('[data-herb-search]').fill('藏红花');
+  assert.equal(await shown.count(),1);assert.equal(await shown.first().locator('.herb-name').innerText(),'西红花');
+  await page.locator('[data-herb-temperature]').selectOption('平');
+  assert.equal(await shown.count(),0);assert.equal(await page.locator('[data-herb-empty]').isVisible(),true);
+  await page.locator('[data-herb-reset]').click();
+  await page.locator('[data-herb-year]').selectOption('2023');
+  assert.equal(await shown.count(),9);
+  await page.locator('[data-herb-search]').fill('天麻');
+  await shown.first().locator('summary').click();
+  assert.match(await shown.first().innerText(),/过敏体质人群不宜食用/);
+  await page.close();
+});
+
+test('recipes rotate through seven menus, reset at Beijing midnight and recover from loading errors', async () => {
+  const page = await newPage();
+  await page.clock.install({time:new Date('2026-10-10T15:59:55Z')});
+  await page.goto(`${base}/healthy-recipes.html`);
+  await page.locator('[data-recipe-next]').waitFor({state:'visible'});
+  assert.equal(await page.locator('.meal-entry').count(),3);
+  const original=await page.locator('[data-recipe-title]').innerText(), titles=new Set([original]);
+  for(let n=0;n<6;n++){await page.locator('[data-recipe-next]').click();titles.add(await page.locator('[data-recipe-title]').innerText())}
+  assert.equal(titles.size,7);
+  await page.locator('[data-recipe-next]').click();assert.equal(await page.locator('[data-recipe-title]').innerText(),original);
+  await page.locator('.meal-body details').first().locator('summary').click();
+  assert.ok(await page.locator('.meal-body details').first().locator('li').count());
+  assert.match(await page.locator('.meal-allergens').first().innerText(),/乳|大豆/);
+  await page.clock.fastForward(65_000);
+  assert.match(await page.locator('[data-recipe-date]').innerText(),/2026年10月11日/);
+  assert.notEqual(await page.locator('[data-recipe-title]').innerText(),original);
+  await page.route('**/healthy-recipes.json*',route=>route.abort());
+  await page.reload();await page.locator('[data-recipe-status]').waitFor({state:'visible'});
+  assert.match(await page.locator('[data-recipe-status]').innerText(),/刷新重试/);
+  assert.equal(await page.locator('[data-recipe-next]').isVisible(),false);
+  await page.unroute('**/healthy-recipes.json*');
+  await page.reload();await page.locator('[data-recipe-next]').waitFor({state:'visible'});
+  assert.equal(await page.locator('.meal-entry').count(),3);
+  await page.close();
+  assert.deepEqual(errors,[]);
+});
+
+test('late language styles recalculate desktop navigation after loading', async () => {
+  const page=await newPage(1440);
+  await page.route('**/assets/language.css*',async route=>{await new Promise(resolve=>setTimeout(resolve,500));await route.continue()});
+  for(const width of [1300,1440]){
+    await page.setViewportSize({width,height:900});
+    await page.goto(`${base}/health.html?lang=de`);
+    await ready(page,'de');
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth<=1),`${width}: overflow after delayed language CSS`);
+    assert.ok(await page.evaluate(()=>document.querySelector('.language-trigger').getBoundingClientRect().right<=innerWidth+1));
+    await page.locator('.nav-toggle').click();
+    await page.locator('.nav-library-trigger').click();
+    assert.equal(await page.locator('.nav-library-menu a').last().isVisible(),true);
+  }
+  await page.close();assert.deepEqual(errors,[]);
 });
