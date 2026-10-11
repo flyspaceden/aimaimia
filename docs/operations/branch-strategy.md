@@ -60,7 +60,7 @@ GitHub 必须用 ruleset/branch protection 禁止删除和普通强推：`main` 
 
 ### 3. 测试环境
 
-小程序纯展示改动经 `scripts/ci-release-scope.mjs` 判定并一次独立审查后，可按 `miniapp-ui-fast-pr.md` 使用客户端快速 PR：候选在自身干净 worktree 编译/渲染，通过客户端 CI 后按授权合入 main，不必提升测试指针、重绑固定微信目录或重发未变化的 API/Admin/Seller。main 仍要求 `e2e` 与 `checks`；UI 模式的 `e2e` 只确认范围与必要门禁，其他模式完整运行原 E2E。下列测试环境流程继续适用于完整联调与业务发布。
+App/小程序的简单前端改动按 `frontend-fast-pr.md` 使用客户端快速 PR：自身干净 worktree 定向编译/渲染、一次独立审查、受影响端 CI 通过后，依据用户持续授权直接以一个快速 PR 合入 main，不强制先提升测试候选、重绑固定目录或重发未变化的服务。main 仍要求 checks/e2e 和原保护；UI 模式跳过未变化的后端 E2E，业务/认证/资金/原生等完整模式保留对应门禁。下列测试环境流程继续适用于完整联调与业务发布。
 
 1. 只把本轮批准的候选以 fast-forward 方式提升到 `staging`，禁止直接在 `staging` 编码；若 `staging` 不是候选祖先，先停止并重建候选，禁止现场 merge 制造未审查的新 SHA。
 2. 记录候选 SHA、staging 部署 SHA、Git tree、migration 数量、构建产物 digest 和 CI run；正常情况下 candidate SHA 必须等于 staging SHA。

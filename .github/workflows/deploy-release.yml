@@ -136,9 +136,9 @@ jobs:
             echo "workflow=true" >> $GITHUB_OUTPUT
             echo "any_deploy=true" >> $GITHUB_OUTPUT
           else
-            # 小程序展示快线只构建客户端，不重发未变化的 API/Admin/Seller。
+            # App/小程序简单前端快线只构建受影响客户端，不重发未变化的服务。
             UI_SCOPE=$(node scripts/ci-release-scope.mjs --mode-only)
-            if [ "$UI_SCOPE" = "miniapp-ui" ]; then
+            if [[ "$UI_SCOPE" =~ ^(app-ui|miniapp-ui|frontend-ui)$ ]]; then
               for TARGET in website admin seller backend huahai market workflow any_deploy; do
                 echo "$TARGET=false" >> $GITHUB_OUTPUT
               done

@@ -31,18 +31,17 @@ describe('mini-program release source guard', () => {
     expect(packageJson.scripts['verify:release-context:production']).toContain(
       'MINIAPP_RELEASE_CHANNEL=production',
     );
-    expect(workflow).toContain("(github.event_name == 'push' && github.ref == 'refs/heads/main')");
-    expect(workflow).toContain("github.ref == 'refs/heads/staging-next'");
-    expect(workflow).toContain("inputs.environment == 'production'");
-    expect(workflow).toContain("github.ref == 'refs/heads/main'");
-    expect(workflow).toContain("inputs.environment == 'staging'");
-    expect(workflow).toContain("github.ref == 'refs/heads/staging'");
-    expect(workflow).toContain('MINIAPP_RELEASE_BRANCH: ${{ github.ref_name }}');
-    expect(workflow).toContain("'.github/workflows/deploy-release.yml'");
-    expect(workflow).toContain('build-production:');
-    expect(workflow).toContain('MINIAPP_RELEASE_CHANNEL: production');
-    expect(workflow).toContain('build-staging:');
-    expect(workflow).toContain('MINIAPP_RELEASE_CHANNEL: staging');
+    const checks = read('../scripts/ci-frontend-checks.mjs');
+    expect(workflow).toContain('miniapp-checks:');
+    expect(workflow).toContain('CI_BUILD_ENVIRONMENT: ${{ inputs.environment }}');
+    expect(workflow).toContain('--client miniapp');
+    expect(checks).toContain("ref === 'refs/heads/main'");
+    expect(checks).toContain("['refs/heads/staging', 'refs/heads/staging-next']");
+    expect(checks).toContain("requested !== environment");
+    expect(checks).toContain("MINIAPP_RELEASE_CHANNEL: environment");
+    expect(checks).toContain("MINIAPP_RELEASE_BRANCH: process.env.GITHUB_REF_NAME");
+    expect(checks).toContain("['run', 'verify:release-context']");
+    expect(checks).toContain("buildSha !== mainTip");
     expect(workflow).not.toContain('matrix.environment');
   });
 });
