@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = path.join(projectRoot, 'dist');
+const artifactEnvironment = process.env.MINIAPP_ARTIFACT_ENV || 'production';
+assert.ok(['staging', 'production'].includes(artifactEnvironment), '产物环境只能为 staging 或 production');
 const projectConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, 'project.config.json'), 'utf8'));
 const appConfig = JSON.parse(fs.readFileSync(path.join(distRoot, 'app.json'), 'utf8'));
 
@@ -130,10 +132,17 @@ const wxssOutput = files
 assert.doesNotMatch(inspectableOutput, /["']PATCH["']/, '微信请求产物不得使用 PATCH');
 assert.doesNotMatch(inspectableOutput, /voice_recognition/i, '录音产物不得使用废弃 voice_recognition 音源');
 assert.doesNotMatch(inspectableOutput, /\.ico(?:["'?]|$)/i, '地图 Marker 不得引用微信不支持的 ICO');
-assert.match(inspectableOutput, /https:\/\/api\.ai-maimai\.com/, '生产包应指向生产 API');
-assert.match(inspectableOutput, /wss:\/\/api\.ai-maimai\.com/, '生产包应指向生产 WebSocket');
-assert.doesNotMatch(inspectableOutput, /https:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 API');
-assert.doesNotMatch(inspectableOutput, /wss:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 WebSocket');
+if (artifactEnvironment === 'production') {
+  assert.match(inspectableOutput, /https:\/\/api\.ai-maimai\.com/, '生产包应指向生产 API');
+  assert.match(inspectableOutput, /wss:\/\/api\.ai-maimai\.com/, '生产包应指向生产 WebSocket');
+  assert.doesNotMatch(inspectableOutput, /https:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 API');
+  assert.doesNotMatch(inspectableOutput, /wss:\/\/test-api\.ai-maimai\.com/, '生产包不得指向测试 WebSocket');
+} else {
+  assert.match(inspectableOutput, /https:\/\/test-api\.ai-maimai\.com/, '测试包应指向测试 API');
+  assert.match(inspectableOutput, /wss:\/\/test-api\.ai-maimai\.com/, '测试包应指向测试 WebSocket');
+  assert.doesNotMatch(inspectableOutput, /https:\/\/api\.ai-maimai\.com/, '测试包不得指向生产 API');
+  assert.doesNotMatch(inspectableOutput, /wss:\/\/api\.ai-maimai\.com/, '测试包不得指向生产 WebSocket');
+}
 assert.doesNotMatch(wxssOutput, /:not\(/, 'WXSS 不得使用开发者工具不支持的 :not() 选择器');
 assert.match(
   inspectableOutput,

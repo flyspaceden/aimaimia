@@ -1,70 +1,78 @@
-name: WeChat Mini Program CI
+name: Buyer Frontend CI
 
 on:
   pull_request:
     branches: [main, staging, staging-next]
-    paths:
-      - 'scripts/ci-ui-syntax.mjs'
-      - 'scripts/ci-release-scope.mjs'
-      - 'scripts/__tests__/ci-release-scope.test.mjs'
-      - 'miniapp/**'
-      - 'assets/seafood/**'
-      - 'app/**'
-      - 'src/content/legal/**'
-      - '.github/workflows/deploy-release.yml'
-      - '.github/workflows/e2e.yml'
-      - '.github/workflows/miniapp-ci.yml'
-      - 'scripts/deploy-backend-versioned.sh'
-      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
-      - 'backend/scripts/verify-miniapp-staging-config.cjs'
-      - 'backend/scripts/verify-miniapp-production-config.cjs'
-      - 'backend/scripts/verify-miniapp-config.cjs'
-      - 'backend/scripts/prepare-miniapp-staging-env.cjs'
-      - 'scripts/__tests__/miniapp-production-config.test.mjs'
-      - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
-      - 'docs/operations/**'
-      - 'plan.md'
   push:
     branches: [main, staging, staging-next]
-    paths:
-      - 'scripts/ci-ui-syntax.mjs'
-      - 'scripts/ci-release-scope.mjs'
-      - 'scripts/__tests__/ci-release-scope.test.mjs'
-      - 'miniapp/**'
-      - 'assets/seafood/**'
-      - 'app/**'
-      - 'src/content/legal/**'
-      - '.github/workflows/deploy-release.yml'
-      - '.github/workflows/e2e.yml'
-      - '.github/workflows/miniapp-ci.yml'
-      - 'scripts/deploy-backend-versioned.sh'
-      - 'scripts/__tests__/deploy-backend-main-safety.test.mjs'
-      - 'backend/scripts/verify-miniapp-staging-config.cjs'
-      - 'backend/scripts/verify-miniapp-production-config.cjs'
-      - 'backend/scripts/verify-miniapp-config.cjs'
-      - 'backend/scripts/prepare-miniapp-staging-env.cjs'
-      - 'scripts/__tests__/miniapp-production-config.test.mjs'
-      - 'scripts/__tests__/prepare-miniapp-staging-env.test.mjs'
-      - 'docs/operations/**'
-      - 'plan.md'
   workflow_dispatch:
     inputs:
       environment:
-        description: Build target
+        description: Miniapp build target (App source follows its branch)
         required: true
         type: choice
-        options:
-          - staging
-          - production
+        options: [staging, production]
 
 permissions:
   contents: read
 
 jobs:
-  client-checks:
+  scope:
     runs-on: ubuntu-latest
     outputs:
-      ui_only: ${{ steps.scope.outputs.ui_only }}
+      app: ${{ steps.scope.outputs.app }}
+      miniapp: ${{ steps.scope.outputs.miniapp }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify scope and gate regression
+        run: node --test scripts/__tests__/ci-release-scope.test.mjs
+      - name: Select affected frontends
+        id: scope
+        env:
+          CI_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_SCOPE_EVENT: ${{ github.event_name }}
+        run: node scripts/ci-release-scope.mjs
+
+  app-checks:
+    needs: scope
+    if: needs.scope.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: App types, related tests and Android/iOS export
+        env:
+          CI_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_SCOPE_EVENT: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_BUILD_ENVIRONMENT: ${{ inputs.environment }}
+        run: node scripts/ci-frontend-checks.mjs --client app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aimai-app-${{ github.sha }}
+          path: dist/app-export/
+          if-no-files-found: error
+          retention-days: 14
+
+  miniapp-checks:
+    needs: scope
+    if: needs.scope.outputs.miniapp == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -75,157 +83,38 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: miniapp/package-lock.json
-      - name: Install mini program dependencies
+      - run: npm ci
         working-directory: miniapp
-        run: npm ci
-      - name: Select relevant validation
-        id: scope
+      - name: Miniapp types, affected lint/tests and build
         env:
           CI_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           CI_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           CI_SCOPE_EVENT: ${{ github.event_name }}
-        run: node scripts/ci-release-scope.mjs
-      - name: Typecheck
-        working-directory: miniapp
-        run: npm run typecheck
-      - name: Lint
-        working-directory: miniapp
-        run: npm run lint -- --max-warnings=0
-      - name: Test
-        working-directory: miniapp
-        run: npm test
-
-  build-candidate:
-    needs: client-checks
-    if: github.event_name == 'pull_request' && needs.client-checks.outputs.ui_only == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: miniapp/package-lock.json
-      - name: Install mini program dependencies
-        working-directory: miniapp
-        run: npm ci
-      - name: Build both candidate targets
-        working-directory: miniapp
-        run: npm run build:staging && npm run build:production && npm run verify:artifact
-      - name: Record exact candidate source
-        run: |
-          node -e 'const fs=require("fs");const cp=require("child_process");fs.writeFileSync("miniapp/dist/review-source.json",JSON.stringify({buildSha:cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),prHead:process.env.PR_HEAD_SHA},null,2))'
-        env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      - name: Upload review artifact
-        uses: actions/upload-artifact@v4
+          CI_BUILD_ENVIRONMENT: ${{ inputs.environment }}
+        run: node scripts/ci-frontend-checks.mjs --client miniapp
+      - uses: actions/upload-artifact@v4
         with:
-          name: aimai-miniapp-review-${{ github.sha }}
+          name: aimai-miniapp-${{ github.ref == 'refs/heads/main' && 'production' || github.event_name == 'pull_request' && 'review' || 'staging' }}-${{ github.sha }}
           path: miniapp/dist/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
-  # 保持 main 的 checks 名称，并把 UI 候选构建纳入必需结果。
+  # main 继续要求唯一的 checks；受影响端必须成功，未受影响端必须明确 skipped。
   checks:
-    needs: [client-checks, build-candidate]
+    needs: [scope, app-checks, miniapp-checks]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require successful client checks and relevant build
-        env:
-          CLIENT_RESULT: ${{ needs.client-checks.result }}
-          UI_ONLY: ${{ needs.client-checks.outputs.ui_only }}
-          CANDIDATE_RESULT: ${{ needs.build-candidate.result }}
-          IS_PR: ${{ github.event_name == 'pull_request' }}
-        run: |
-          set -euo pipefail
-          test "$CLIENT_RESULT" = "success"
-          case "$UI_ONLY" in true|false) ;; *) exit 1 ;; esac
-          if [ "$IS_PR" = "true" ] && [ "$UI_ONLY" = "true" ]; then
-            test "$CANDIDATE_RESULT" = "success"
-          else
-            test "$CANDIDATE_RESULT" = "skipped"
-          fi
-
-  build-staging:
-    needs: checks
-    if: >-
-      ${{ !cancelled() && needs.checks.result == 'success' && (
-      (github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/staging-next'))
-      || (
-        github.event_name == 'workflow_dispatch'
-        && inputs.environment == 'staging'
-        && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/staging-next')
-      )
-      ) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: miniapp/package-lock.json
-      - name: Install mini program dependencies
-        working-directory: miniapp
-        run: npm ci
-      - name: Verify release source
-        working-directory: miniapp
+      - name: Require successful affected frontend validation
         env:
-          MINIAPP_RELEASE_CHANNEL: staging
-          MINIAPP_RELEASE_BRANCH: ${{ github.ref_name }}
-        run: npm run verify:release-context
-      - name: Build staging mini program
-        working-directory: miniapp
-        run: npm run build:staging
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aimai-miniapp-staging-${{ github.sha }}
-          path: miniapp/dist/
-          if-no-files-found: error
-          retention-days: 14
-
-  build-production:
-    needs: checks
-    if: >-
-      ${{ !cancelled() && needs.checks.result == 'success' && (
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-      || (
-        github.event_name == 'workflow_dispatch'
-        && inputs.environment == 'production'
-        && github.ref == 'refs/heads/main'
-      )
-      ) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: miniapp/package-lock.json
-      - name: Install mini program dependencies
-        working-directory: miniapp
-        run: npm ci
-      - name: Verify release source
-        working-directory: miniapp
-        env:
-          MINIAPP_RELEASE_CHANNEL: production
-        run: npm run verify:release-context
-      - name: Build production mini program
-        working-directory: miniapp
-        run: npm run build:production
-      - name: Verify production artifact
-        working-directory: miniapp
-        run: npm run verify:artifact
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aimai-miniapp-production-${{ github.sha }}
-          path: miniapp/dist/
-          if-no-files-found: error
-          retention-days: 14
+          CI_SCOPE_RESULT: ${{ needs.scope.result }}
+          CI_APP_REQUIRED: ${{ needs.scope.outputs.app }}
+          CI_MINIAPP_REQUIRED: ${{ needs.scope.outputs.miniapp }}
+          CI_APP_RESULT: ${{ needs.app-checks.result }}
+          CI_MINIAPP_RESULT: ${{ needs.miniapp-checks.result }}
+        run: node scripts/ci-release-scope.mjs --assert-frontend-result

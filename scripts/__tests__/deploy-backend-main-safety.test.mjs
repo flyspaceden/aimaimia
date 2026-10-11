@@ -92,7 +92,8 @@ test('main production deployment is manual and fail-closed', () => {
   assert.match(e2eWorkflow, /branches: \[main, dev, staging, staging-next\]/);
   assert.match(e2eWorkflow, /workflow_dispatch:/);
   assert.match(e2eWorkflow, /push:\s+branches: \[dev, main\]/);
-  assert.match(miniappWorkflow, /'\.github\/workflows\/e2e\.yml'/);
+  assert.match(miniappWorkflow, /branches: \[main, staging, staging-next\]/);
+  assert.doesNotMatch(miniappWorkflow, /\n\s+paths:/, 'required checks must also exist for backend-only PRs');
   assert.match(workflow, /\[ "\$TARGET" = "huahai" \] && echo "huahai=true"/);
   assert.doesNotMatch(workflow, /\[ "\$TARGET" = "all" \] \|\| \[ "\$TARGET" = "huahai" \]/);
 });

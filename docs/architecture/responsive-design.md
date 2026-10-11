@@ -318,6 +318,8 @@ import { Text } from 'react-native';
 
 ## 四、新页面开发 Checklist（PR / Code Review 必跑）
 
+现有页面的文案、样式或简单本地交互经 [前端快线](../operations/frontend-fast-pr.md) 合入 main 时，按本次影响选择下面的适用检查和窄屏/大字体/安全区场景，不机械重复全项目与全部十种设备场景；在一次独立审查中记录检查结果与未执行的真机项。新页面、原生/runtime/业务变更与 App OTA/Build 的对应发布门禁继续适用。
+
 > 🟡 **R-RS01 helper 已可用（2026-05-04 落地，待真机验证）**：所有 helper 直接 `import { useResponsiveLayout, priceTextProps, fitTextProps, compactActionTextProps, useBottomInset } from 'src/theme'`。新代码 PR 按下面 Checklist 严格检查；老代码迁移走 R-RS04-07 sprint，迁移期允许暂时延用原生 API（`useWindowDimensions` / 显式 `numberOfLines+adjustsFontSizeToFit`）作为过渡，但同一文件碰一次就建议改完。
 
 ### 编码阶段
