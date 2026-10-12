@@ -2,7 +2,6 @@ import '@/polyfills/abort-controller';
 import { useEffect, useRef, type PropsWithChildren } from 'react';
 import { QueryClientProvider, focusManager } from '@tanstack/react-query';
 import { useDidHide, useDidShow } from '@tarojs/taro';
-import { MiniappPrivacyAuthorization } from '@/components/privacy-authorization';
 import { queryClient } from '@/query/client';
 import { useAuthStore } from '@/store/auth';
 import './app.scss';
@@ -25,6 +24,5 @@ export default function App({ children }: PropsWithChildren) {
 
   return <QueryClientProvider client={queryClient}>
     {children}
-    <MiniappPrivacyAuthorization />
   </QueryClientProvider>;
 }

@@ -1,16 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-describe('WeChat privacy authorization component contract', () => {
-  it('resolves agreement only from the official privacy button event', () => {
-    const source = readFileSync(
-      new URL('../src/components/privacy-authorization/index.tsx', import.meta.url),
-      'utf8',
-    );
-    const agreeButton = source.match(/<Button[\s\S]*?id=\{MINIAPP_PRIVACY_AGREE_BUTTON_ID\}[\s\S]*?>同意并继续<\/Button>/)?.[0];
+function sourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(file);
+    return /\.tsx?$/.test(file) && !file.endsWith('.test.ts') ? [file] : [];
+  });
+}
 
-    expect(agreeButton).toContain("openType='agreePrivacyAuthorization'");
-    expect(agreeButton).toContain("onAgreePrivacyAuthorization={() => decide('agree')}");
-    expect(agreeButton).not.toContain("onClick={() => decide('agree')}");
+describe('WeChat native privacy authorization', () => {
+  it('does not intercept native consent with an invisible app-level dialog', () => {
+    // Taro App 同级视图无法渲染；注册监听会让微信停等不可见的同意按钮。
+    const sources = sourceFiles(path.resolve('src'));
+    const interceptors = sources.filter((file) =>
+      /\bonNeedPrivacyAuthorization\s*\(/.test(readFileSync(file, 'utf8')),
+    );
+    expect(interceptors).toEqual([]);
   });
 });
