@@ -20,7 +20,7 @@ export interface AsrRecognizeResult {
 
 /**
  * 阿里云百炼平台 ASR 语音识别服务
- * 使用 gummy-chat-v1 模型，通过 WebSocket 协议进行实时语音转文字
+ * 使用 paraformer-realtime-v2，通过 WebSocket 转写完整录音
  */
 @Injectable()
 export class AsrService {
@@ -81,10 +81,8 @@ export class AsrService {
     }
 
     const { pcmBuffer, asrFormat, ffmpegMs } = await this.normalizeAudioBuffer(audioBuffer, format);
-    const estimatedDurationMs = this.estimateAudioDurationMs(pcmBuffer, asrFormat);
-    const maxEndSilence = this.pickMaxEndSilenceMs(estimatedDurationMs);
     this.logger.log(
-      `ASR 输入: format=${asrFormat}, 数据大小=${pcmBuffer.length} 字节, 估算时长=${estimatedDurationMs}ms, max_end_silence=${maxEndSilence}ms` +
+      `ASR 输入: model=paraformer-realtime-v2, format=${asrFormat}, 数据大小=${pcmBuffer.length} 字节` +
       (ffmpegMs !== undefined ? `, ffmpeg=${ffmpegMs}ms` : ''),
     );
 
@@ -121,17 +119,6 @@ export class AsrService {
         },
       });
 
-      const resolveWithText = (text: string, reason: string) => {
-        if (isResolved) {
-          return;
-        }
-        isResolved = true;
-        cleanup();
-        this.logger.log(`ASR 提前返回（${reason}）：${text}`);
-        try { ws.close(); } catch (_) { /* 忽略 */ }
-        resolve(buildResult(text));
-      };
-
       const startRecognitionTimer = () => {
         if (recognitionTimer) {
           clearTimeout(recognitionTimer);
@@ -140,18 +127,14 @@ export class AsrService {
           if (!isResolved) {
             isResolved = true;
             try { ws.close(); } catch (_) { /* 忽略 */ }
-            if (sentences.length > 0) {
-              this.logger.warn(`ASR 识别超时，返回已有部分结果：${sentences.join('')}`);
-              resolve(buildResult(sentences.join('')));
-            } else {
-              reject(new Error('ASR 识别超时'));
-            }
+            reject(new Error('ASR 识别超时'));
           }
         }, this.RECOGNITION_TIMEOUT_MS);
       };
 
       const bindSocketHandlers = () => {
         ws.on('message', (data: WebSocket.Data) => {
+          if (isResolved) return;
           try {
             const raw = data.toString();
             this.logger.debug(`ASR 收到原始消息: ${raw.substring(0, 500)}`);
@@ -177,7 +160,7 @@ export class AsrService {
                 if (transcription?.text && transcription?.sentence_end) {
                   sentences.push(transcription.text);
                   this.logger.log(`ASR 识别结果：${transcription.text}`);
-                  resolveWithText(sentences.join(''), 'sentence_end');
+                  // Paraformer 的句尾不代表整段结束，等待 task-finished 保留后续条件。
                 }
                 break;
               }
@@ -226,11 +209,7 @@ export class AsrService {
           if (!isResolved) {
             isResolved = true;
             cleanup();
-            if (sentences.length > 0) {
-              resolve(buildResult(sentences.join('')));
-            } else {
-              reject(new Error('ASR WebSocket 连接意外关闭'));
-            }
+            reject(new Error('ASR WebSocket 连接意外关闭'));
           }
         });
       };
@@ -251,11 +230,10 @@ export class AsrService {
             task_group: 'audio',
             task: 'asr',
             function: 'recognition',
-            model: 'gummy-chat-v1',
+            model: 'paraformer-realtime-v2',
             parameters: {
               sample_rate: 16000,
               format: asrFormat,
-              max_end_silence: maxEndSilence,
             },
             input: {},
           },
@@ -391,28 +369,6 @@ export class AsrService {
       proc.stdin.write(audioBuffer);
       proc.stdin.end();
     });
-  }
-
-  private estimateAudioDurationMs(audioBuffer: Buffer, format: string): number {
-    if (format === 'pcm') {
-      const bytesPerSecond = 16000 * 2; // 16kHz * 16bit mono
-      return Math.max(0, Math.round((audioBuffer.length / bytesPerSecond) * 1000));
-    }
-
-    return 0;
-  }
-
-  private pickMaxEndSilenceMs(estimatedDurationMs: number): number {
-    if (estimatedDurationMs > 0 && estimatedDurationMs <= 2500) {
-      return 200;
-    }
-    if (estimatedDurationMs > 0 && estimatedDurationMs <= 5000) {
-      return 250;
-    }
-    if (estimatedDurationMs > 0 && estimatedDurationMs <= 8000) {
-      return 300;
-    }
-    return 400;
   }
 
   private async openWebSocket(apiKey: string): Promise<WebSocket> {
