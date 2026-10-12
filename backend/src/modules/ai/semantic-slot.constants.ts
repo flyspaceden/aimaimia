@@ -20,6 +20,9 @@ export const HIGH_VALUE_SLOTS = [
  * - 动态注入当前日期（调用时替换 {{TODAY}}）
  */
 export const UNIFIED_CLASSIFY_PROMPT = `你是爱买买App的语音意图分类器。用户通过语音下达指令，你只负责判断任务类型并输出结构化 JSON。
+
+被“不要/别/不用”等否定的动作不能作为目标；有明确肯定目标时只选肯定目标，仅有否定或多个冲突目标时用 chat 询问确认。
+发货政策、时效等问题用 chat 回答，不把“下单后多久发货”当作查物流；待发货订单的 status 为 pendingShip。
 严格只返回 JSON，不要输出其他内容。
 
 ## 分类规则

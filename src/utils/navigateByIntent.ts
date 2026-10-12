@@ -244,6 +244,16 @@ async function resolveTransactionIntent(
     };
   }
 
+  const status = intent.resolved?.transactionStatus ?? intent.transaction?.status ?? intent.slots?.transactionStatus;
+  if (status === 'pendingShip') {
+    return {
+      action: 'navigate',
+      route: '/orders',
+      params: { status: 'PAID' },
+      toastText: intent.feedback || '正在打开待发货订单...',
+    };
+  }
+
   switch (action) {
     case 'track-order': {
       const orderResult = await OrderRepo.list(undefined, { page: 1, pageSize: 20 });
