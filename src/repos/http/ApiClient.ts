@@ -208,6 +208,7 @@ async function uploadRequest<T>(
   path: string,
   formData: FormData,
 ): Promise<Result<T>> {
+  const timeoutMs = path.split('?')[0] === '/ai/voice-intent' ? 60_000 : 30_000;
   try {
     const url = `${API_BASE_URL}${path}`;
     console.log('[Upload] URL:', url);
@@ -218,7 +219,7 @@ async function uploadRequest<T>(
     }
     // 注意：不设置 Content-Type，让 fetch 自动生成 multipart boundary
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000); // 上传超时延长到 30s
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     console.log('[Upload] 开始上传...');
     const response = await fetch(url, {
@@ -241,7 +242,7 @@ async function uploadRequest<T>(
           headers['Authorization'] = `Bearer ${retryToken}`;
         }
         const retryController = new AbortController();
-        const retryTimer = setTimeout(() => retryController.abort(), 30000);
+        const retryTimer = setTimeout(() => retryController.abort(), timeoutMs);
         const retryResponse = await fetch(url, {
           method: 'POST',
           headers,

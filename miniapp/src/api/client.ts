@@ -264,7 +264,7 @@ async function rawUploadFile(
     filePath: input.filePath,
     name: input.name,
     formData: input.formData,
-    timeout: 30_000,
+    timeout: path === '/ai/voice-intent' ? 60_000 : 30_000,
     header: authHeader(accessToken),
   });
   let data: unknown = response.data;
