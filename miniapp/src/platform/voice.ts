@@ -18,7 +18,8 @@ export type AiVoiceIntent = {
 };
 
 let manager: Taro.RecorderManager | null = null;
-let recorderState: 'idle' | 'starting' | 'recording' | 'stopping' = 'idle';
+let recorderState: 'idle' | 'authorizing' | 'starting' | 'recording' | 'stopping' = 'idle';
+let startTimer: ReturnType<typeof setTimeout> | undefined;
 let discardCurrentRecording = false;
 let completedRecording: VoiceRecording | null = null;
 let startPending: { resolve: () => void; reject: (error: Error) => void } | null = null;
@@ -27,11 +28,27 @@ let stopPending: {
   reject: (error: Error) => void;
 } | null = null;
 
+function clearStartTimer(): void {
+  clearTimeout(startTimer);
+  startTimer = undefined;
+}
+
+function recordingError(error: unknown, fallback: string): Error {
+  const message = error instanceof Error ? error.message
+    : (error as { errMsg?: string } | null)?.errMsg || '';
+  if (message.includes('scope is not declared')) {
+    return new Error('语音功能暂不可用，请联系客服完善隐私声明');
+  }
+  return new Error(fallback);
+}
+
 function recorderManager(): Taro.RecorderManager {
   if (manager) return manager;
   manager = Taro.getRecorderManager();
   manager.onStart(() => {
-    if (discardCurrentRecording) {
+    clearStartTimer();
+    if (discardCurrentRecording || !startPending || recorderState !== 'starting') {
+      discardCurrentRecording = true;
       recorderState = 'stopping';
       try {
         manager?.stop();
@@ -46,6 +63,10 @@ function recorderManager(): Taro.RecorderManager {
     startPending = null;
   });
   manager.onStop((result) => {
+    clearStartTimer();
+    const failedStart = startPending !== null;
+    startPending?.reject(new Error('录音未能启动，请重试'));
+    startPending = null;
     const recording: VoiceRecording = {
       tempFilePath: result.tempFilePath,
       durationMs: result.duration,
@@ -53,7 +74,7 @@ function recorderManager(): Taro.RecorderManager {
       format: 'mp3',
     };
     recorderState = 'idle';
-    if (discardCurrentRecording) {
+    if (discardCurrentRecording || failedStart) {
       discardCurrentRecording = false;
       completedRecording = null;
       startPending = null;
@@ -70,7 +91,8 @@ function recorderManager(): Taro.RecorderManager {
     stopPending = null;
   });
   manager.onError((result) => {
-    const error = new Error(result.errMsg || '录音失败');
+    clearStartTimer();
+    const error = recordingError(result, '录音失败，请检查微信麦克风权限后重试');
     startPending?.reject(error);
     stopPending?.reject(error);
     recorderState = 'idle';
@@ -89,10 +111,29 @@ export function startVoiceRecording(): Promise<void> {
   completedRecording = null;
   discardCurrentRecording = false;
   return new Promise((resolve, reject) => {
-    startPending = { resolve, reject };
-    recorderState = 'starting';
-    try {
-      recorderManager().start({
+    const pending = { resolve, reject };
+    startPending = pending;
+    recorderState = 'authorizing';
+    let failureMessage = '请同意隐私保护指引后再使用语音';
+    // 不注册自定义隐私监听，由微信展示原生授权弹窗。
+    void (async () => {
+      if (typeof Taro.requirePrivacyAuthorize === 'function') {
+        await Taro.requirePrivacyAuthorize();
+      }
+      if (startPending !== pending) return;
+      failureMessage = '未获得麦克风权限，请在小程序设置中开启';
+      await Taro.authorize({ scope: 'scope.record' });
+      if (startPending !== pending) return;
+      failureMessage = '录音启动失败，请稍后重试';
+      recorderState = 'starting';
+      const recorder = recorderManager();
+      // 用户阅读授权弹窗不计时，只限制真正启动录音的等待时间。
+      startTimer = setTimeout(() => {
+        if (startPending !== pending) return;
+        pending.reject(new Error('麦克风启动超时，请退出小程序后重试'));
+        cancelVoiceRecording();
+      }, 10_000);
+      recorder.start({
         duration: 60_000,
         sampleRate: 16_000,
         numberOfChannels: 1,
@@ -102,11 +143,13 @@ export function startVoiceRecording(): Promise<void> {
         // `auto` keeps the same recording contract on both iOS and Android.
         audioSource: 'auto',
       });
-    } catch (error) {
+    })().catch((error: unknown) => {
+      if (startPending !== pending) return;
+      clearStartTimer();
       recorderState = 'idle';
       startPending = null;
-      reject(error instanceof Error ? error : new Error('录音启动失败'));
-    }
+      reject(recordingError(error, failureMessage));
+    });
   });
 }
 
@@ -115,13 +158,16 @@ export function startVoiceRecording(): Promise<void> {
  * 取消不得将自动 stop 的结果留给下一个页面使用。
  */
 export function cancelVoiceRecording(): void {
+  clearStartTimer();
   const cancellation = new Error('录音已取消');
   completedRecording = null;
-  discardCurrentRecording = recorderState !== 'idle';
+  const wasAuthorizing = recorderState === 'authorizing';
+  discardCurrentRecording = recorderState !== 'idle' && !wasAuthorizing;
   startPending?.reject(cancellation);
   stopPending?.reject(cancellation);
   startPending = null;
   stopPending = null;
+  if (wasAuthorizing) recorderState = 'idle';
   if (recorderState === 'idle') return;
   recorderState = 'stopping';
   try {

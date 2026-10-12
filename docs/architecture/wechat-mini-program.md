@@ -149,3 +149,10 @@
 - Swiper 覆盖到 12.1.2，已消除对应 Critical；Taro 的 Vite/esbuild/webpack/uuid 构建工具链仍有 1 high + 12 moderate，需独立升级。
 - H5 InviteChoice 已转入 2026-08-24 独立候选；App 自提只读兼容仍保持独立提交和 OTA 验收，不与 H5 静态发布混合。
 - 候选已推送到 Draft PR #1，但尚未合并 `main`、部署生产后端、执行生产 migration、上传微信体验版或完成真机验收。
+
+## 2026-10-11 录音授权启动修复（本地候选）
+
+- 原 App 根组件同级隐私弹窗不在 Taro 页面 root 下，监听生效但界面不可见，首次录音会一直等待隐私同意。改为微信原生隐私弹窗，不再注册自定义 `onNeedPrivacyAuthorization`。拍照、选图、扫码和保存图片也继续走微信原生授权。
+- 录音顺序为 `requirePrivacyAuthorize`（可用时）→ `authorize(scope.record)` → RecorderManager.start；拒绝后给中文提示，可再次尝试。页面离开会取消本轮，迟到授权不会启动录音。
+- 仅真正启动录音后计时 10 秒；超时停止并丢弃迟到结果，不缩短用户阅读授权的时间。首次长按遇到授权时，完成授权后可再次长按说话。
+- 本地定向测试、类型检查、production 构建及独立只读审查通过；正式版后台隐私指引、微信真机首次同意/拒绝/重试仍待验收，尚未上传或发布。
