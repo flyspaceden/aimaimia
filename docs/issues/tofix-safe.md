@@ -543,3 +543,11 @@
 | WX-PICKUP-03 | `WechatShippingOutbox.payload` 存入 JSONB 后对象键顺序变化，直接 `JSON.stringify` 哈希会把同一快照误判为篡改并阻止发送 | 哈希统一改为递归排序对象键的规范化 JSON；数组顺序保持业务语义。真实 PostgreSQL 写入/读回和 worker 发送测试锁定该行为，旧算法任务会先按权威数据重建为新哈希 | 本地已修并通过独立审查，待发布验收 |
 
 独立复审未发现新增 Critical/High/Medium。真实 PostgreSQL 18 在完整 126 条迁移上验证：同一支付会话两个子订单并发核销经 Serializable/P2034 重试后最终恰好一个 outbox；JSONB 写入读回后完整性哈希稳定，worker 成功收口。
+
+## 2026-10-11 小程序麦克风授权状态机
+
+- **MP-VOICE-01（High，本地修复，待发布/真机）**：App 根组件外的自定义隐私弹窗不可见，录音启动 Promise 等不到用户选择；移除自定义拦截，采用微信原生隐私与录音权限授权。
+- 状态机/时序：`idle → authorizing → starting → recording → stopping`，单一 pending 对象防并发和旧授权回调；页面取消不自动录音，启动超时丢弃迟到 onStart/onStop，未启动的音频不得作为成功结果。
+- 幂等/重试：重复启动返回忙；拒绝权限后可重试；10 秒超时后等待原录音器终止，不能交叉开始两个录音。
+- 资金/库存/Serializable/CAS、Token/OTP、跨端认证和服务端公开接口：本次不涉及，沿用现状。数据库无变更。
+- 已完成定向回归、TypeScript、production 构建和独立只读审查；首次隐私同意、拒绝权限、后台返回与迟到回调仍需候选真机验证。

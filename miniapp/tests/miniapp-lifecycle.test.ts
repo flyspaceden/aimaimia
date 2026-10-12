@@ -10,7 +10,6 @@ describe('mini program lifecycle integration', () => {
 
     expect(app).toContain('useDidShow(() => focusManager.setFocused(true))');
     expect(app).toContain('useDidHide(() => focusManager.setFocused(false))');
-    expect(app).toContain('<MiniappPrivacyAuthorization />');
   });
 
   it('refreshes catalog products whenever the product tab is shown', () => {
