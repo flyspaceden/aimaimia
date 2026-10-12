@@ -1,3 +1,5 @@
+> 2026-10-11 语音识别故障修复候选：`gummy-chat-v1` 已下线，生产日志确认 `Model not exist`。本地 ASR 已迁移为 `paraformer-realtime-v2`，逐句累积至 `task-finished`，断线/超时不执行半句指令。本条覆盖下文旧章节中“当前使用 gummy-chat-v1”及首句立即返回的描述，历史记录保留。尚未部署生产。
+
 > 2026-10-04 官网数字人首期发布按用户选择采用静态主题讲解、完整宣传片和固定常见问题，暂不开放公网实时模型；不更改爱买买App/小程序的AI接口。见 `features/huahai-digital-human.md`。
 
 # 爱买买 AI 语音助手集成方案
@@ -1740,3 +1742,13 @@ Phase C 不再继续堆叠在通用 `recommend/plan` 之上，而是把新的复
 ## 2026-10-11 小程序录音授权阻塞修复（本地候选）
 
 Taro App 同级自定义隐私弹窗不可见，导致录音一直显示“正在打开麦克风”。改用微信原生隐私授权，并顺序申请 `scope.record`；授权取消不再启动录音，授权完成后的录音启动有 10 秒超时与迟到回调丢弃。保留 16kHz 单声道 MP3 及原后端协议。此项不改变意图、导航或大模型，不涉及 App 原生录音。已通过本地检查及独立审查，尚未小程序上传/真机/正式发布；详见 `docs/architecture/wechat-mini-program.md`。
+
+## 2026-10-11 App 与小程序共用 ASR 模型迁移（本地候选）
+
+- 现场：Android App 1.0.6 / Runtime 1.0.6 / production OTA `01a0c724`，松手后提示“语音识别失败，请重试或使用文字输入”。生产服务的 `AsrService` 和 `AiService` 日志连续返回 `Model not exist`，部署模型确认为 `gummy-chat-v1`；凭据已配置。
+- 供应商依据：[阿里云下线公告](https://www.aliyun.com/notice/118331)列出 Gummy 于 2026-10-10 下线；[Paraformer 请求协议](https://help.aliyun.com/en/model-studio/paraformer-client-events)与[响应协议](https://help.aliyun.com/zh/model-studio/paraformer-server-events)用于本次适配。
+- 修改范围：仅共享 `AsrService` 的模型与结果收尾。保留原上传 API、字段、预建连和 FFmpeg 16kHz 单声道 PCM；Android M4A、微信 MP3 无需改变协议。意图识别/聊天/推荐大模型不变，不包含此前审查发现的导航和筛选缺陷。
+- Paraformer 以 `sentence_end` 标记每句话，只有 `task-finished` 才表示完整录音结束。移除 Gummy 专有 `max_end_silence` 和首句提前返回；超时、断线或 task-failed 不返回部分指令，避免丢失后半句否定/价格条件。
+- 验证：新增 ASR 6 项回归通过，既有 AI 35 项通过，Nest build 通过，独立只读审查无阻塞项。使用合成语音“帮我找苹果。不要超过五十元。”，在服务器独立 Node 进程中内存加载候选服务，调用真实 Paraformer：MP3 1407ms、M4A/AAC 1279ms，均完整返回“帮我找苹果。不要超过50元。”；没有替换线上代码、重启 PM2 或调用交易接口。
+- 发布与回滚：等待明确授权后按后端完整门禁发布；无 Schema/迁移/资金公式变化。代码回退可撤销本提交，但退回 Gummy 仍然无法识别，不能把技术回退当作语音恢复；供应商异常时先暂停语音入口/引导文字输入，再发布验证过的修正。
+- 后续：PR/CI、受控测试/生产部署、App 与微信真机复测分别验收；小程序授权修复仍需上传候选和正式发布，后端迁移不能替代它。
