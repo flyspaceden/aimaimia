@@ -23,6 +23,7 @@ const reviewedDifferenceEntries = [
   ...manifest.reviewedFundLedgerDifferences,
   ...manifest.reviewedPickupFundDifferences,
   ...manifest.reviewedWechatPickupShippingDifferences,
+  ...manifest.reviewedVoiceDifferences,
 ];
 // Later review groups are explicit overrides for an already reviewed path.
 const reviewedOverrideByPath = new Map(
@@ -148,6 +149,7 @@ test('the parity manifest documents every intentional non-identical production s
     manifest.reviewedFundLedgerDifferences.map((entry) => entry.path),
     manifest.reviewedPickupFundDifferences.map((entry) => entry.path),
     manifest.reviewedWechatPickupShippingDifferences.map((entry) => entry.path),
+    manifest.reviewedVoiceDifferences.map((entry) => entry.path),
   ))].sort());
   for (const entry of manifest.intentionalCandidateDifferences) {
     assert.ok(entry.reason.length >= 20, `${entry.path} must explain why it differs`);
@@ -274,6 +276,23 @@ test('reviewed WeChat pickup shipping runtime files retain their approved conten
       `${entry.path} reviewed source`,
     );
     assert.equal(gitBlob(await read(entry.path)), entry.gitBlob, entry.path);
+    assert.ok(entry.reason.length >= 20);
+  }
+});
+
+
+test('voice fixes retain the independently reviewed three-file provenance', async () => {
+  const commit = '2151253200d39f034a128be03af8cdc2fb3c1c33';
+  assert.deepEqual(manifest.reviewedVoiceDifferences.map((entry) => entry.path).sort(), [
+    'backend/src/modules/ai/ai.service.ts',
+    'backend/src/modules/ai/asr.service.ts',
+    'backend/src/modules/ai/semantic-slot.constants.ts',
+  ]);
+  for (const entry of manifest.reviewedVoiceDifferences) {
+    assert.equal(entry.sourceReviewCommit, commit);
+    const sourceBlob = execFileSync('git', ['rev-parse', `${commit}:${entry.path}`], { cwd: rootPath, encoding: 'utf8' }).trim();
+    assert.equal(entry.gitBlob, sourceBlob, `${entry.path} reviewed source`);
+    assert.equal(gitBlob(await read(entry.path)), sourceBlob, entry.path);
     assert.ok(entry.reason.length >= 20);
   }
 });
