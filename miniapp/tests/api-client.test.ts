@@ -462,3 +462,12 @@ describe('client state cleanup and Result contract', () => {
     }
   });
 });
+
+
+it('uses a longer timeout only for voice recognition uploads', async () => {
+  uploadFileMock.mockResolvedValue({ statusCode: 200, data: JSON.stringify({ ok: true, data: {} }) });
+  await ApiClient.uploadFile('/ai/voice-intent', { filePath: 'voice.mp3', name: 'audio' });
+  expect(uploadFileMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 60000 }));
+  await ApiClient.uploadFile('/upload', { filePath: 'image.png', name: 'file' });
+  expect(uploadFileMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeout: 30000 }));
+});
