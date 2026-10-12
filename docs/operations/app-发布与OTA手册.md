@@ -277,7 +277,7 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ---
 
-## 六、当前 App 实际状态（2026-07-05）
+## 六、当前 App 实际状态（2026-10-12）
 
 ### 2026-09-07 自提测试候选准备（尚未构建/发布）
 
@@ -533,7 +533,16 @@ native splash 阻塞最多 5 秒等 OTA 拉取
 
 ### Production Branch
 
-**当前状态（2026-09-14）**：最新正式 APK 仍为 `prod-1.0.6-20260714-0003.apk`（versionCode 16，runtime 1.0.6，构建源码 `5006594d`），`apk/aimaimai-latest.apk` 已同步为同一文件；最新 production OTA 为下方 2026-09-14 商品库存状态刷新，源码 `main@7f262126`。`app.json` 当前保持 `version=1.0.6`，从 main 继续发布 App OTA 时默认目标 runtime 为 **1.0.6**。生产设备仍可能并存 1.0.5 及更旧 runtime，各 runtime 互不接收其他版本的 OTA。
+**当前状态（2026-10-12）**：本次不重打原生包，App版本/runtime仍为 **1.0.6**；最新 production OTA 为下方语音修复，源码 `main@17cb2a44`。用户已确认安装 App 1.0.6、runtime 1.0.6、production channel；旧 OTA 前缀为 `01a0c724`。其他 runtime 不接收本次 OTA，历史 APK 记录保留。
+
+### 2026-10-12 语音识别与订单导航（production OTA）
+
+- 源码：`17cb2a441b235586762a35edf56feaa45932eaf4`，PR #52合入后与已审查候选tree一致，最终main checks/E2E均通过。本次无App原生依赖或配置变更；App定向6项、TypeScript及Android/iOS/web冷缓存导出通过，独立只读审查与修复点复核通过。
+- 内容：待发货语音进入PAID订单筛选；仅语音上传扩大为60秒，保留查询参数与401重试。共享后端已在生产切换Paraformer v2，正式MP3/M4A上传完整识别且保留预算；原Gummy已下线，不能用旧模型恢复语音。
+- 产物：锁文件全新安装依赖后显式注入五项production `EXPO_PUBLIC_*`，`expo export --platform all --clear --dump-assetmap`固定目录 `/tmp/aimai-voice-ota-17cb2a44`，以 `eas update --input-dir ... --skip-bundler`发布。两端HBC版本96，SDK54/RN0.81.5，与runtime1.0.6兼容；各64资源/19字体。
+- 结果：[production Group cb4dffc1-7356-4541-b75e-455f6bc50f41](https://expo.dev/accounts/flyspaceden/projects/ai-aimaimai/updates/cb4dffc1-7356-4541-b75e-455f6bc50f41)，Android Update `01a12e9c-7dee-76c4-99eb-ad4836d69014`、iOS Update `01a12e9c-7dee-7f57-b933-89e19f711c03`，runtime均1.0.6，gitCommitHash均17cb2a44。正式channel请求的两端实际manifest已选中新ID，各64资源/19字体完整。
+- 生效与回退：用户完全关闭App后冷启动，等待更新下载，再完全关闭并重开；关于页OTA前缀应为 `01a12e9c`。真机冷启动/录音/订单筛选尚未验收。旧稳定Group `784d6d7e-75fe-475b-8504-27aa6fdccbe3`可republish回production；OTA回退不撤销生产ASR修复，旧后端Gummy代码回退后语音仍不可用。
+- 微信状态独立：小程序1.0.5已从同一干净main上传，用户自行后台提审并于通过后正式发布；上传不等于审核/正式上线。此处文档提交不改变已经发布的17cb2a44代码产物。
 
 ### 2026-09-14 商品库存状态刷新（Android preview build + production OTA）
 

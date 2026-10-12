@@ -1,4 +1,4 @@
-> 2026-10-11 语音识别故障修复候选：`gummy-chat-v1` 已下线，生产日志确认 `Model not exist`。本地 ASR 已迁移为 `paraformer-realtime-v2`，逐句累积至 `task-finished`，断线/超时不执行半句指令。本条覆盖下文旧章节中“当前使用 gummy-chat-v1”及首句立即返回的描述，历史记录保留。尚未部署生产。
+> 2026-10-12 语音修复发布状态：共享后端 `main@17cb2a44` 已在生产使用 `paraformer-realtime-v2`，逐句累积至 `task-finished`，断线/超时不执行半句指令；App runtime 1.0.6 production OTA 已发布；小程序 1.0.5 已上传，由用户在微信后台提审并于通过后发布。下文 2026-10-11 的本地候选记录保留作历史依据，本条覆盖旧 Gummy/首句返回说明；真机验收仍待完成。
 
 > 2026-10-04 官网数字人首期发布按用户选择采用静态主题讲解、完整宣传片和固定常见问题，暂不开放公网实时模型；不更改爱买买App/小程序的AI接口。见 `features/huahai-digital-human.md`。
 
@@ -1773,3 +1773,12 @@ Taro App 同级自定义隐私弹窗不可见，导致录音一直显示“正�
 真实供应商60秒合成录音曾超过原10秒预算；现在按16kHz PCM时长给10至30秒识别预算，客户端仅语音上传改60秒，普通上传维持30秒。调整后同一60秒样本13835ms完整识别，含17次苹果与17次价格限制；MP3/M4A短音频此前也通过。客户端预算为每次尝试，401刷新后重试可延长总时间。
 
 验证：小程序57组329项、完整AI5组60项、App交易/上传预算2组6项通过；小程序/App TypeScript、小程序定向lint与production构建、Nest build及App Android/iOS production配置导出通过，独立只读审查与修复点复核通过。真实供应商测试使用合成音频与隔离进程，不替换生产服务。App订单筛选/新等待预算需OTA，小程序需对应版本发布；后台ASR迁移恢复旧App的短录音能力。GitHub/CI/服务器/OTA/微信发布与真机验收仍是独立门禁。
+
+## 2026-10-12 发布证据与待验收
+
+- [PR #52](https://github.com/flyspaceden/aimaimia/pull/52) 按受保护的线性历史合入 `main@17cb2a441b235586762a35edf56feaa45932eaf4`，tree 与已审查候选 `8da8498a` 一致；最终 main checks/E2E、126 项迁移 NO_OP 演练、23 表守恒和 exact-SHA attestation 均通过。[生产后端 run 38207494188](https://github.com/flyspaceden/aimaimia/actions/runs/38207494188) 成功。
+- 正式 `/api/v1/health/ready` 返回上述 SHA，数据库/Redis 均 up；MP3 与 M4A 的真实供应商上传完整识别“帮我找苹果。不要超过50元。”并保留 `under-50` 搜索条件，无 ASR fallback。未新增 migration 或修改凭据。
+- App production OTA Group `cb4dffc1-7356-4541-b75e-455f6bc50f41`，runtime `1.0.6`，Android/iOS 实际 manifest 都选中 `01a12e9c` 开头的新 Update，各含64资源/19字体；源码、完整 Update ID 与回退 Group 见 `docs/operations/app-发布与OTA手册.md`。尚未真机冷启动/长按录音/导航验收。
+- 小程序 `1.0.5` 从干净 exact-main 经 production release-context/artifact 校验后上传成功；尚未提交审核/正式发布。用户已授权正式发布并选择自行在微信后台提审、通过后发布；浏览器站点安全策略禁止代理操作该后台，上传不能当作线上验收。
+- [PR #53](https://github.com/flyspaceden/aimaimia/pull/53) 合入并部署 `staging-next@924df343`；与生产版本双向直接比较，backend/App/小程序业务源码一致，仅保留测试分支既有 artifact 校验脚本及 release-context 单测两项差异。冻结 `staging` 与固定测试目录未动。
+- 本次记录提交只维护文档，不改变已部署后端、OTA 或微信上传的 `17cb2a44` 代码版本；不以记录提交的 CI 替代该发布版本的证据。

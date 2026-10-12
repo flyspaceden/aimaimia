@@ -2576,4 +2576,6 @@ src/components/ai/   → 新增目录
 
 语音 `pendingShip` 在登录检查后进入 `/orders?status=PAID`，不误入已发货物流；原`shipping`仍使用已有追踪流程。仅 `/ai/voice-intent` 音频上传采用60秒预算，带查询参数和401重试均使用同一预算，普通上传保持30秒。跨端共用后端已适配Paraformer v2，详情与验证边界见 `docs/ai/ai.md`。
 
-本次无新页面或样式变化，响应式清单的布局/大字体/安全区项不涉及。App类型、交易/真实Abort预算6项回归和Android/iOS production配置导出通过；本地修改尚未OTA发布或真机验收。
+本次无新页面或样式变化，响应式清单的布局/大字体/安全区项不涉及。App类型、交易/真实Abort预算6项回归和Android/iOS production配置导出通过。
+
+2026-10-12：`main@17cb2a44` 的 runtime `1.0.6` production OTA 已发布，Group `cb4dffc1-7356-4541-b75e-455f6bc50f41`；Android/iOS 实际 manifest 均选中新 Update（前缀 `01a12e9c`），各含64资源/19字体。共享生产后端已通过 MP3/M4A 实际上传，真机冷启动、长按与订单筛选仍待验收；完整发布与回退记录见 `docs/operations/app-发布与OTA手册.md`。
