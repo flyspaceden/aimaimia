@@ -1,9 +1,12 @@
 {
-  "version": "20261011-language-voices-v2",
+  "version": "20261011-ja-pronunciation-v3",
   "model": "qwen3-tts-flash",
   "language": "Japanese",
   "profileHash": "d57d1b0fcfcf5f01d6da39a206b7a3c038d25d93f2a188ea910284fe97927c17",
   "provider": "dashscope",
   "voiceType": "system",
-  "voice": "Ono Anna"
+  "voice": "Ono Anna",
+  "pronunciation": {
+    "AI": "エーアイ"
+  }
 }

@@ -10,7 +10,7 @@
   "chapters": [
     {
       "id": "strategy",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-strategy.mp3",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/en-strategy.mp3",
       "duration": 137.16000000000003,
       "cues": [
         {
@@ -77,7 +77,7 @@
     },
     {
       "id": "values",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-values.mp3",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/en-values.mp3",
       "duration": 102.64,
       "cues": [
         {
@@ -144,7 +144,7 @@
     },
     {
       "id": "technology",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-technology.mp3",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/en-technology.mp3",
       "duration": 126.4,
       "cues": [
         {
@@ -211,7 +211,7 @@
     },
     {
       "id": "product",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-product.mp3",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/en-product.mp3",
       "duration": 107.28,
       "cues": [
         {
@@ -278,7 +278,7 @@
     },
     {
       "id": "chain",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-chain.mp3",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/en-chain.mp3",
       "duration": 128.56,
       "cues": [
         {
@@ -350,7 +350,7 @@
     },
     {
       "id": "health",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-health.mp3",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/en-health.mp3",
       "duration": 140.92000000000002,
       "cues": [
         {
@@ -423,11 +423,11 @@
   ],
   "film": {
     "locale": "en",
-    "preview": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/huahai-brand-film-en-preview.mp4",
-    "download": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/huahai-brand-film-en.mp4",
+    "preview": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/huahai-brand-film-en-preview.mp4",
+    "download": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-da552f0924e6/huahai-brand-film-en.mp4",
     "poster": "media/brand-film-en-cover.png",
     "subtitle": "media/huahai-brand-film-en.srt",
-    "duration": 495.84,
-    "shots": 55
+    "duration": 500.92,
+    "shots": 54
   }
 }

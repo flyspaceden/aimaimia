@@ -1,218 +1,218 @@
 {
   "locale": "es",
   "version": "2026-10-03-v2",
-  "contentHash": "419c53d21512b6fdc38f69c4871280f7db8e62212d8a9faebe1f21df3551c4ef",
+  "contentHash": "bd080cd7eed42b138c8cfc31e5321d37d5bf7a86dbf7c4645d44a17f0a03dd2d",
   "characterConfigHash": "5e6da92047fc86dd803bbcf76082ec108b2061f6d09a829c59040dedea5474c5",
-  "voiceConfigHash": "c4f68ff5c23d83337e401a44f77b3b3706672e028fa95749b1bcdd35899817c8",
+  "voiceConfigHash": "db171fab4b69441e1d4b3bbabb3f2c679997323137b880e3c5e89ba4ff048ea5",
   "spriteHash": "f82ae90d746c817224adf538b52aaf72d4f8444ed45733aaec238916500b7826",
   "voice": "qwen3-tts-flash/Sonrisa",
   "alignment": "qwen3-filetrans-word-timestamps",
   "chapters": [
     {
       "id": "strategy",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/es-strategy.mp3",
-      "duration": 217.6,
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/es-strategy.mp3",
+      "duration": 222.32,
       "cues": [
         {
           "start": 2.08,
-          "end": 29.2,
+          "end": 29.6,
           "text": "Hola, soy Xiaoxi, el asistente digital explicativo de Huahai AgriTech. A continuación, lo guiaré a través de seis aspectos: estrategia corporativa, filosofía de desarrollo, ruta tecnológica, producto Aimaimai, cadena completa de producción y comercialización impulsada por IA, y ecosistema agrícola de bienestar integral."
         },
         {
-          "start": 29.479999999999997,
-          "end": 40.839999999999996,
+          "start": 29.959999999999997,
+          "end": 46.2,
           "text": "Comenzaremos con la estrategia corporativa. La entidad operativa de Huahai AgriTech es Shenzhen Huahai Agricultural Science and Technology Group Co., Ltd."
         },
         {
-          "start": 41.4,
-          "end": 60.12,
+          "start": 47.480000000000004,
+          "end": 68.28,
           "text": "Según la información publicada en el sitio web oficial de la empresa, el grupo fue fundado en 2017 y es una empresa de Shenzhen destinada a apoyar la región de Xinjiang, con un enfoque central en la integración de IA y agricultura."
         },
         {
-          "start": 60.480000000000004,
-          "end": 79.92,
+          "start": 68.64,
+          "end": 88,
           "text": "Huahai AgriTech busca conectar la investigación y el desarrollo tecnológico, los servicios productivos, la comercialización y la circulación, y la colaboración industrial, para que la información fluya a lo largo de la cadena de valor agrícola."
         },
         {
-          "start": 80.64,
-          "end": 94.96000000000001,
+          "start": 88.72,
+          "end": 101.68,
           "text": "El extremo productivo se interesa por cómo cultivar y criar adecuadamente, cómo identificar riesgos y cómo acumular de forma continua registros productivos confiables."
         },
         {
-          "start": 95.52000000000001,
-          "end": 108.56,
+          "start": 102.32,
+          "end": 115.12,
           "text": "En la etapa de comercialización, el interés radica en cómo expresar la calidad, cómo clasificar los productos y cómo coordinar inventario, pedidos y cumplimiento."
         },
         {
-          "start": 108.92000000000002,
-          "end": 123.08000000000001,
+          "start": 115.48,
+          "end": 129.64000000000001,
           "text": "El extremo de consumo se interesa por qué producto se adquiere, su origen, si responde a sus necesidades específicas y cómo acceder al servicio en caso de presentarse algún problema."
         },
         {
-          "start": 123.56000000000002,
-          "end": 132.12,
+          "start": 130.12,
+          "end": 138.68,
           "text": "Al conectar estas preguntas, obtenemos una perspectiva de cadena de valor integral, desde el campo hasta la mesa."
         },
         {
-          "start": 132.60000000000002,
-          "end": 155.88000000000002,
+          "start": 139.16,
+          "end": 162.44,
           "text": "La estrategia industrial presentada en el sitio web incluye la cría de ganado y aves, la acuicultura y el cultivo de arroz tolerante a la sal, extendiéndose además a la biología sintética, el procesamiento de productos agrícolas y los servicios de datos confiables."
         },
         {
-          "start": 156.32000000000002,
-          "end": 180.08,
+          "start": 162.8,
+          "end": 184.88,
           "text": "Frente a estos distintos escenarios, la dirección estratégica de Huahai AgriTech es conformar progresivamente un sistema colaborativo capaz de acumular datos, apoyar la toma de decisiones, organizar la oferta y atender a los consumidores."
         },
         {
-          "start": 180.72,
-          "end": 197.36,
+          "start": 185.36,
+          "end": 202,
           "text": "Entre ellos, Aimaimai es un vehículo productivo clave orientado al consumo y a las transacciones, que conecta los productos del origen y de los comerciantes con las necesidades cotidianas de los consumidores."
         },
         {
-          "start": 197.8,
-          "end": 216.56,
+          "start": 202.52,
+          "end": 221.28,
           "text": "Aquí se presenta la estrategia y las direcciones de desarrollo de la empresa; la cobertura real de bases, los resultados de proyectos y los efectos operativos deben verificarse según los proyectos concretos y los documentos de aceptación correspondientes."
         }
       ]
     },
     {
       "id": "values",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/es-values.mp3",
-      "duration": 176.96000000000004,
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/es-values.mp3",
+      "duration": 182,
       "cues": [
         {
           "start": 2.08,
-          "end": 15.12,
-          "text": "La filosofía central de Huahai AgriTech es avanzar la agricultura con tecnología, habilitarla con IA y priorizar la seguridad alimentaria."
+          "end": 15.04,
+          "text": "La filosofía central de Huahai AgriTech es avanzar la agricultura con tecnología, habilitarla con IA y priorizar la inocuidad de los alimentos."
         },
         {
-          "start": 15.76,
-          "end": 25.68,
+          "start": 15.44,
+          "end": 26.08,
           "text": "Avanzar la agricultura con tecnología implica que la tecnología responda a los problemas reales del campo agrícola."
         },
         {
-          "start": 26.32,
-          "end": 41.04,
+          "start": 26.64,
+          "end": 42.24,
           "text": "Por ejemplo: ¿los datos ambientales pueden visualizarse oportunamente?, ¿pueden detectarse antes las anomalías?, ¿pueden guardarse y consultarse fácilmente los registros productivos?"
         },
         {
-          "start": 41.86,
-          "end": 52.18,
+          "start": 43.04,
+          "end": 53.84,
           "text": "Para evaluar el valor técnico, debe considerarse el resultado en escenarios reales, no solo la cantidad de funciones del sistema."
         },
         {
-          "start": 52.440000000000005,
-          "end": 64.28,
+          "start": 54.120000000000005,
+          "end": 65.96000000000001,
           "text": "Potenciación con IA implica la colaboración coordinada entre datos, modelos y experiencia especializada."
         },
         {
-          "start": 64.84,
-          "end": 83.64,
+          "start": 66.52000000000001,
+          "end": 85.32000000000001,
           "text": "La IA puede ayudar a comprender la información, organizar las evidencias y generar recomendaciones; también permite a los consumidores expresar sus necesidades de selección de forma más sencilla."
         },
         {
-          "start": 84.28,
-          "end": 103.56,
+          "start": 85.96000000000001,
+          "end": 105.24000000000001,
           "text": "En las operaciones productivas, las recomendaciones de IA deben evaluarse teniendo en cuenta la calidad de los datos, la experiencia agronómica y las condiciones de los equipos, y contar con confirmación humana."
         },
         {
-          "start": 103.92000000000002,
-          "end": 119.12000000000002,
-          "text": "‘La seguridad alimentaria primero’ implica valorar el origen, el proceso productivo, la información de análisis, los registros de comercialización y la trazabilidad y el servicio posteriores a cualquier incidencia."
+          "start": 105.60000000000001,
+          "end": 125.68,
+          "text": "‘La inocuidad de los alimentos primero’ implica valorar el origen, el proceso productivo, la información de análisis, los registros de comercialización y la trazabilidad y el servicio posteriores a cualquier incidencia."
         },
         {
-          "start": 119.84000000000002,
-          "end": 130.4,
+          "start": 126.64000000000001,
+          "end": 138.96,
           "text": "Los registros digitales pueden ayudar a verificar los procesos, pero la integridad del registro no implica automáticamente que la calidad sea conforme."
         },
         {
-          "start": 130.96,
-          "end": 142.32000000000002,
+          "start": 139.8,
+          "end": 153.24,
           "text": "Las conclusiones de los análisis deben corresponder a lotes específicos y a informes válidos; además, la promoción de los productos debe coincidir con evidencia real."
         },
         {
-          "start": 142.60000000000002,
-          "end": 160.20000000000002,
+          "start": 153.56,
+          "end": 167.96,
           "text": "Para los consumidores, estos principios deben reflejarse en información de productos más clara, procesos transaccionales más transparentes y experiencias de servicio más confiables."
         },
         {
-          "start": 160.76000000000002,
-          "end": 175.88000000000002,
+          "start": 168.6,
+          "end": 180.92000000000002,
           "text": "Huahai AgriTech aspira a implementar estas ideas en etapas concretas de producción, circulación y consumo, mediante una construcción tecnológica continua y colaboraciones industriales."
         }
       ]
     },
     {
       "id": "technology",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/es-technology.mp3",
-      "duration": 202.27999999999997,
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/es-technology.mp3",
+      "duration": 201.71999999999997,
       "cues": [
         {
-          "start": 2.48,
-          "end": 16.48,
+          "start": 2.08,
+          "end": 16.16,
           "text": "La ruta tecnológica de Huahai AgriTech puede entenderse en cinco etapas: percepción, conexión, comprensión, toma de decisiones y retroalimentación."
         },
         {
-          "start": 17.28,
-          "end": 29.52,
+          "start": 16.96,
+          "end": 29.28,
           "text": "La capa de percepción obtiene información sobre el entorno, los procesos productivos y los lotes de productos mediante sensores, imágenes y registros manuales."
         },
         {
-          "start": 30.32,
-          "end": 43.44,
+          "start": 29.76,
+          "end": 42.64,
           "text": "El rango de medición, las condiciones de instalación y el estado de calibración de los distintos dispositivos afectan directamente si los datos pueden utilizarse para emitir juicios."
         },
         {
-          "start": 43.72,
-          "end": 61.879999999999995,
+          "start": 43.160000000000004,
+          "end": 61.32000000000001,
           "text": "La capa de conexión utiliza una pasarela inteligente de borde para vincular los equipos locales con la plataforma, realizando tareas como la incorporación de dispositivos, la transmisión de datos y la recuperación tras interrupciones."
         },
         {
-          "start": 62.519999999999996,
-          "end": 78.28,
+          "start": 61.96000000000001,
+          "end": 77.72,
           "text": "Las capacidades del borde pueden entenderse como una ‘microcerebro AI’ en el lugar, mientras que las capacidades en la nube pueden entenderse como un ‘macrocerebro AI’ para consolidación y análisis."
         },
         {
-          "start": 78.68,
-          "end": 90.92,
+          "start": 78.12,
+          "end": 90.36000000000001,
           "text": "Esta es una descripción divulgativa de la división técnica de funciones; los algoritmos específicos y las capacidades de control deben validarse caso por caso."
         },
         {
-          "start": 91.28,
-          "end": 111.76,
+          "start": 90.72,
+          "end": 111.2,
           "text": "La capa de comprensión organiza los cambios ambientales, los registros productivos, la información de los productos y el contexto operativo, permitiendo que los modelos trabajen dentro de un ámbito informativo claramente definido."
         },
         {
-          "start": 112.4,
-          "end": 129.52,
+          "start": 111.84,
+          "end": 128.96,
           "text": "La capa de apoyo a la toma de decisiones debe combinar las recomendaciones de IA con las reglas de negocio, los requisitos agronómicos y la confirmación humana para ofrecer un apoyo explicable al juicio."
         },
         {
-          "start": 129.88,
-          "end": 144.27999999999997,
+          "start": 129.32,
+          "end": 143.71999999999997,
           "text": "La capa de retroalimentación registra los resultados de la ejecución, los resultados del servicio y los cambios posteriores, proporcionando una base para futuras mejoras."
         },
         {
-          "start": 144.51999999999998,
-          "end": 156.67999999999998,
+          "start": 143.95999999999998,
+          "end": 156.11999999999998,
           "text": "En Aimaimai, el código actual ya incluye reconocimiento de intenciones por voz, consulta de productos, asesoramiento presupuestal y diálogos con IA."
         },
         {
-          "start": 157.23999999999998,
-          "end": 177.88,
+          "start": 156.67999999999998,
+          "end": 177.32,
           "text": "En el campo agrícola, el control automático también implica confirmaciones de operación de equipos, gestión de permisos, mecanismos de detención y verificación de funcionamiento real; no basta con una sugerencia de IA para considerar que una acción ha concluido."
         },
         {
-          "start": 178.23999999999998,
-          "end": 201.27999999999997,
+          "start": 177.67999999999998,
+          "end": 200.71999999999997,
           "text": "El sitio web presenta otras áreas de colaboración: biología sintética, trazabilidad confiable y computación que protege la privacidad. También incluye las finanzas y los seguros. Cada área debe avanzar gradualmente, según sus autorizaciones, sus alianzas y sus condiciones de implementación."
         }
       ]
     },
     {
       "id": "product",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/es-product.mp3",
-      "duration": 178.11999999999998,
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/es-product.mp3",
+      "duration": 181.79999999999998,
       "cues": [
         {
           "start": 2.08,
@@ -270,16 +270,16 @@
           "text": "Los beneficios para miembros, puntos de consumo, bonos de plataforma y activos digitales tienen reglas propias; no pueden considerarse un solo saldo ni describirse como una promesa de rendimiento fijo."
         },
         {
-          "start": 161.76,
-          "end": 177.03999999999996,
+          "start": 161.83999999999997,
+          "end": 180.79999999999998,
           "text": "La posición de Aimaimai dentro del ecosistema de Huahai consiste en conectar de forma más fluida la información de los productos, las demandas de consumo, los procesos de transacción y el servicio posventa."
         }
       ]
     },
     {
       "id": "chain",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/es-chain.mp3",
-      "duration": 206.92,
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/es-chain.mp3",
+      "duration": 209.15999999999997,
       "cues": [
         {
           "start": 2.08,
@@ -338,96 +338,96 @@
         },
         {
           "start": 167.51999999999998,
-          "end": 186.76,
+          "end": 189.59999999999997,
           "text": "Actualmente, Aimaimai ya ofrece la base de código relacionada con el consumo y las transacciones; la coordinación automática entre la planificación productiva y la retroalimentación del consumidor forma parte de una dirección de desarrollo continua."
         },
         {
-          "start": 186.76,
-          "end": 205.92,
+          "start": 190.15999999999997,
+          "end": 208.07999999999998,
           "text": "Huahai AgriTech aspira a lograr progresivamente que la oferta se organice según necesidades reales, que la calidad se exprese con evidencia productiva y que la retroalimentación apoye las mejoras en la siguiente iteración."
         }
       ]
     },
     {
       "id": "health",
-      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/es-health.mp3",
-      "duration": 233.68,
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/es-health.mp3",
+      "duration": 231.84,
       "cues": [
         {
           "start": 2,
-          "end": 13.6,
+          "end": 16.4,
           "text": "Por último, conoceremos el ecosistema agrícola de bienestar (agricultura/alimentos/bienestar) impulsado por IA de Huahai AgriTech."
         },
         {
-          "start": 14.32,
-          "end": 30.4,
+          "start": 17.119999999999997,
+          "end": 32.08,
           "text": "Esta línea de trabajo tiene como base la agricultura y los alimentos, y se centra en las condiciones de producción originales, la calidad alimentaria, la información nutricional y los servicios cotidianos de consumo."
         },
         {
-          "start": 31.12,
-          "end": 43.2,
+          "start": 32.64,
+          "end": 45.04,
           "text": "En el origen, los insumos ecológicos, la gestión de la producción y el registro de procesos constituyen una base fundamental para discutir la calidad."
         },
         {
-          "start": 43.56,
-          "end": 65.32000000000001,
+          "start": 45.32,
+          "end": 67.08,
           "text": "En el extremo de productos, el sitio web presenta el procesamiento profundo de productos agrícolas y alimentarios, así como líneas estratégicas de investigación y desarrollo como alimentos funcionales y productos que combinan usos alimentarios y tradicionales."
         },
         {
-          "start": 65.80000000000001,
-          "end": 80.6,
+          "start": 67.56,
+          "end": 82.36,
           "text": "Estas líneas de trabajo deben desarrollarse integrando materias primas específicas, evidencia de investigación y desarrollo, normas alimentarias y las correspondientes habilitaciones."
         },
         {
-          "start": 80.96000000000001,
-          "end": 94.08000000000001,
+          "start": 82.72,
+          "end": 95.84,
           "text": "En el extremo del consumidor, Aimaimai ayuda a los usuarios a consultar información de productos, expresar sus preferencias de compra y recibir soporte para transacciones y servicios."
         },
         {
-          "start": 94.48,
-          "end": 107.84,
+          "start": 96.24,
+          "end": 109.6,
           "text": "La IA puede apoyar la interpretación de la información existente y la organización de los criterios de selección, facilitando la comprensión de documentación técnica compleja sobre productos."
         },
         {
-          "start": 108.56,
-          "end": 119.68,
+          "start": 110.32,
+          "end": 121.44,
           "text": "Sin embargo, la descripción de alimentos no sustituye un diagnóstico médico, y los alimentos comunes no pueden presentarse como capaces de tratar enfermedades."
         },
         {
-          "start": 120.04000000000002,
-          "end": 135.48000000000002,
+          "start": 121.80000000000001,
+          "end": 137.24,
           "text": "Ante necesidades especiales de salud, la selección sigue requiriendo la combinación de etiquetas de producto y opiniones profesionales; no debe considerarse la respuesta de la IA como un plan de tratamiento individual."
         },
         {
-          "start": 136.12000000000003,
-          "end": 149.08,
+          "start": 137.88000000000002,
+          "end": 150.84,
           "text": "Este ecosistema requiere la participación conjunta de bases agrícolas, empresas alimentarias, instituciones de investigación científica, servicios de análisis y socios de logística."
         },
         {
-          "start": 149.44000000000003,
-          "end": 168.48000000000002,
+          "start": 151.12,
+          "end": 171.6,
           "text": "Huahai AgriTech aspira, mediante la tecnología y la colaboración industrial, a establecer conexiones más claras entre la producción en origen, el desarrollo de productos, la información verificable y el consumo familiar."
         },
         {
-          "start": 169.28000000000003,
-          "end": 188.24,
+          "start": 172,
+          "end": 192.96,
           "text": "Se trata de una ruta ecosistémica que requiere construcción y validación continuas; las capacidades de proyectos y productos específicos deben evaluarse conforme a sus autorizaciones reales, documentación técnica y evidencia operativa."
         },
         {
-          "start": 188.60000000000002,
-          "end": 232.64000000000001,
-          "text": "Desde la producción agrícola hasta la mesa familiar, y desde la recolección de datos hasta los servicios inteligentes, Huahai AgriTech busca acercar la tecnología al sector, hacer más visible la calidad y facilitar la colaboración entre oferta y demanda. Avanzar la agricultura con tecnología, habilitarla con IA, priorizar la seguridad alimentaria. Gracias por su atención; le invitamos a explorar junto con Huahai AgriTech el futuro de la agricultura impulsada por IA."
+          "start": 193.32000000000002,
+          "end": 230.8,
+          "text": "Desde la producción agrícola hasta la mesa familiar, y desde la recolección de datos hasta los servicios inteligentes, Huahai AgriTech busca acercar la tecnología al sector, hacer más visible la calidad y facilitar la colaboración entre oferta y demanda. Avanzar la agricultura con tecnología, habilitarla con IA, priorizar la inocuidad de los alimentos. Gracias por su atención; le invitamos a explorar junto con Huahai AgriTech el futuro de la agricultura impulsada por IA."
         }
       ]
     }
   ],
   "film": {
     "locale": "es",
-    "preview": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/huahai-brand-film-es-preview.mp4",
-    "download": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-973d0127ae44/huahai-brand-film-es.mp4",
+    "preview": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/huahai-brand-film-es-preview.mp4",
+    "download": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-es-113a7dedfbc7/huahai-brand-film-es.mp4",
     "poster": "media/brand-film-es-cover.png",
     "subtitle": "media/huahai-brand-film-es.srt",
-    "duration": 782.56,
+    "duration": 780.88,
     "shots": 55
   }
 }

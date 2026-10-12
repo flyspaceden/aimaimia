@@ -257,7 +257,8 @@ async function final(){
   if(smoke){fs.renameSync(output,path.join(build,'smoke.mp4'));console.log('3秒合成与编码预检完成。');return;}
   const dest=path.join(media,stem+'.mp4');fs.renameSync(output,dest);
   const preview=path.join(media,stem+'-preview.mp4');
-  await run(['-y','-v','error','-i',dest,'-vf','scale=1280:720','-c:v','h264_videotoolbox','-b:v','1500k','-profile:v','baseline','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart','-metadata','comment='+(locale?'Localized web preview; licensed stock and AI illustrative scenes; fixed voice for this language.':'网页轻量版；授权素材与AI场景示意；同一参考女声'),preview]);
+  await run(['-y','-v','error','-i',dest,'-vf','scale=1280:720','-c:v','h264_videotoolbox','-b:v','1500k','-profile:v','baseline','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart','-metadata','comment='+(locale?'Localized web preview; licensed stock and AI illustrative scenes; fixed voice for this language.':'网页轻量版；授权素材与AI场景示意；同一参考女声'),preview+'.partial.mp4']);
+  fs.renameSync(preview+'.partial.mp4',preview);
   filmPlan.encodedFrames=Math.ceil(Math.round(duration*24000)*fps/24000);
   filmPlan.previewHash=sha(fs.readFileSync(preview));filmPlan.previewBytes=fs.statSync(preview).size;filmPlan.videoHash=sha(fs.readFileSync(dest));filmPlan.videoBytes=fs.statSync(dest).size;filmPlan.captionCount=captionBlocks.length;filmPlan.generatedClipCount=shots.filter(s=>s.kind==='ai').length;filmPlan.stockClipCount=shots.filter(s=>s.kind==='stock').length;filmPlan.uniqueClips=true;filmPlan.decoder='software';
   filmPlan.mixAudioHash=sha(fs.readFileSync(mix));fs.writeFileSync(path.join(media,locale?'brand-film-'+locale+'-manifest.json':'brand-film-v2-manifest.json'),JSON.stringify(filmPlan,null,2));await frameAt(4,path.join(media,locale?'brand-film-'+locale+'-cover.png':'brand-film-v2-cover.png'));

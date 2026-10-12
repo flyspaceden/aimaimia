@@ -19,6 +19,20 @@ test('整章相似度很高时也拒绝漏掉的完整句子',()=>{
   const texts=['我们连接真实生产与消费需求。'.repeat(12),'这些方向需要结合具体原料、研发证据、食品标准和相应资质开展。','我们希望建立可靠的农业服务体系。'.repeat(12)];
   assert.throws(()=>alignSentences(texts,recognized([texts[0],texts[2]])),/漏读|锚点|边界/);
 });
+test('总相似度合格时仍拒绝句内漏掉整段说明',()=>{
+  const prefix='We connect agricultural production, industry services and family consumption. '.repeat(3);
+  const clause='supporting development in the Xinjiang region';
+  const text=prefix+'As a Shenzhen company '+clause+', Huahai connects research and production. '+prefix;
+  const recognition=recognized([text.replace(clause,'')]);
+  assert.doesNotThrow(()=>alignSentences([text],recognition,.86,{maxCharsPerSecond:40}));
+  assert.throws(()=>alignSentences([text],recognition,.86,{maxCharsPerSecond:40,maxUnmatchedSpan:14}),/连续正文未匹配/);
+});
+test('ASR连续替换与连续删除分开判断',()=>{
+  const prefix='Agricultural technology connects production and consumption. '.repeat(6);
+  const text=prefix+'abcdefghijklmnop'+prefix;
+  const recognition=recognized([text.replace('abcdefghijklmnop','zzzzzzzzzzzzzzzz')]);
+  assert.doesNotThrow(()=>alignSentences([text],recognition,.86,{maxCharsPerSecond:40,maxUnmatchedSpan:14}));
+});
 test('拒绝关键否定词漏读，避免改变食品边界含义',()=>{
   const text='普通食品不能被宣称可以治疗疾病，研发需要证据与资质。';
   assert.throws(()=>alignSentences([text],recognized([text.replace('不能','能')])),/否定\/边界/);

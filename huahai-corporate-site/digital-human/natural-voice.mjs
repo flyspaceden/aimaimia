@@ -125,6 +125,12 @@ export function alignSentences(texts, recognition, minimumSimilarity = .88, opti
     const exactCount = mapped.reduce((sum, anchor, offset) => sum + (anchor !== null && heard[anchor] === wanted[sentenceStart + offset] ? 1 : 0), 0);
     const coverage = anchors.length / source[index].length, exactRate = exactCount / source[index].length, charsPerSecond = source[index].length / (end - start);
     if (coverage < .85 || exactRate < .8 || charsPerSecond > maxCharsPerSecond) throw new Error(`第${index+1}句配音可能漏读或误配：覆盖${coverage.toFixed(3)}，匹配${exactRate.toFixed(3)}，语速${charsPerSecond.toFixed(1)}字/秒`);
+    let unmatched=0;
+    for(let offset=0;offset<mapped.length;offset++) {
+      // ASR异写交给匹配率和听审；连续无锚点的正文单独触发漏读复核。
+      unmatched=mapped[offset]===null?unmatched+1:0;
+      if(unmatched>(options.maxUnmatchedSpan??Infinity))throw new Error(`第${index+1}句有连续正文未匹配，需要核对配音`);
+    }
     source[index].forEach((char, offset) => { if (['不','未'].includes(char) && (mapped[offset] === null || heard[mapped[offset]] !== char)) throw new Error(`第${index+1}句否定/边界用词未匹配，需要核对配音`); });
     for (const span of options.protectedSpans?.(text) || []) {
       for (let offset=span.start; offset<span.end; offset++) {
