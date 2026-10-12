@@ -89,15 +89,17 @@ const digits = { 零:'0', 〇:'0', 一:'1', 二:'2', 两:'2', 三:'3', 四:'4', 
 export function normalize(text) {
   return Array.from(text.toLowerCase().replace(/人工智能/g, 'ai').replace(/[\s\p{P}\p{S}]/gu, '')).map(c => digits[c] || c).join('');
 }
-export function alignSentences(texts, recognition, minimumSimilarity = .88) {
+export function alignSentences(texts, recognition, minimumSimilarity = .88, options = {}) {
+  const normalizeText = options.normalizeText || normalize;
+  const maxCharsPerSecond = options.maxCharsPerSecond || 16;
   const spoken = [];
   for (const transcript of recognition.transcripts || []) for (const sentence of transcript.sentences || []) for (const word of sentence.words || []) {
-    const chars = Array.from(normalize(word.text || ''));
+    const chars = Array.from(normalizeText(word.text || ''));
     const begin = word.begin_time / 1000, end = word.end_time / 1000;
     if (!Number.isFinite(begin) || !Number.isFinite(end) || end < begin) throw new Error('无效语音时间戳');
     chars.forEach((char, i) => spoken.push({char, start:begin+(end-begin)*i/chars.length, end:begin+(end-begin)*(i+1)/chars.length}));
   }
-  const source = texts.map(text => Array.from(normalize(text)));
+  const source = texts.map(text => Array.from(normalizeText(text)));
   const wanted = source.flat(), heard = spoken.map(x => x.char), n = wanted.length, m = heard.length;
   if (!n || !m) throw new Error('对齐正文或语音识别为空');
   const width = m + 1, dp = new Uint16Array((n + 1) * width);
@@ -122,8 +124,13 @@ export function alignSentences(texts, recognition, minimumSimilarity = .88) {
     if(end<=start)throw new Error('字幕边界无效');
     const exactCount = mapped.reduce((sum, anchor, offset) => sum + (anchor !== null && heard[anchor] === wanted[sentenceStart + offset] ? 1 : 0), 0);
     const coverage = anchors.length / source[index].length, exactRate = exactCount / source[index].length, charsPerSecond = source[index].length / (end - start);
-    if (coverage < .85 || exactRate < .8 || charsPerSecond > 16) throw new Error(`第${index+1}句配音可能漏读或误配：覆盖${coverage.toFixed(3)}，匹配${exactRate.toFixed(3)}，语速${charsPerSecond.toFixed(1)}字/秒`);
+    if (coverage < .85 || exactRate < .8 || charsPerSecond > maxCharsPerSecond) throw new Error(`第${index+1}句配音可能漏读或误配：覆盖${coverage.toFixed(3)}，匹配${exactRate.toFixed(3)}，语速${charsPerSecond.toFixed(1)}字/秒`);
     source[index].forEach((char, offset) => { if (['不','未'].includes(char) && (mapped[offset] === null || heard[mapped[offset]] !== char)) throw new Error(`第${index+1}句否定/边界用词未匹配，需要核对配音`); });
+    for (const span of options.protectedSpans?.(text) || []) {
+      for (let offset=span.start; offset<span.end; offset++) {
+        if (mapped[offset] === null || heard[mapped[offset]] !== source[index][offset]) throw new Error(`第${index+1}句关键否定词未匹配，需要核对配音`);
+      }
+    }
     sentenceStats.push({index,coverage,exactRate,charsPerSecond});
     lastEnd=end; return{start,end,text};
   });

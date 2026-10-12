@@ -333,6 +333,7 @@
       document.documentElement.dataset.language = language;
       document.querySelector('.translation-notice')?.toggleAttribute('hidden', language === 'zh-CN');
       activeLanguage = language;
+      window.dispatchEvent(new CustomEvent('huahai:languagechange',{detail:{language}}));
       showLanguage(language);
       updateUrl(language);
       try { localStorage.setItem(storageKey, language); } catch { /* 禁用存储时仍通过 URL 跨页保持语言。 */ }

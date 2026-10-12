@@ -1,0 +1,9 @@
+{
+  "version": "20261011-language-voices-v2",
+  "model": "qwen3-tts-flash",
+  "language": "Portuguese",
+  "profileHash": "d0517b407245e71aef3555abfe08a2d43c20e7ee5b4377b9d0026d9f1f2b55a1",
+  "provider": "dashscope",
+  "voiceType": "system",
+  "voice": "Andre"
+}

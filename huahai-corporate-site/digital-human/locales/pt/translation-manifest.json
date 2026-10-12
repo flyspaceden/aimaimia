@@ -1,0 +1,11 @@
+{
+  "locale": "pt",
+  "sourceRowsHash": "cf0a673308f430a5d2649331d26c3d510c38b08e334964b7b847034405b3b7a7",
+  "count": 444,
+  "model": "qwen-plus",
+  "version": "guide-faithful-v1",
+  "originalHashes": {
+    "knowledge.json": "50c53f1272ff0bc166cdf396b4461433479212727fbb2e8141a16c6ab6d08046",
+    "promo-knowledge.json": "feac471fd6b3d439e34798be3c2d9143eed1130353127b2c81d09e330c87fbed"
+  }
+}

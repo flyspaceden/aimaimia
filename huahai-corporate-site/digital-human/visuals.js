@@ -1,14 +1,16 @@
 /* 原创画布数字人；网页与视频共用同一套绘制函数。 */
 (function (root) {
   'use strict';
+  let translate=s=>s;
+  const setTranslator=fn=>{translate=fn;};
   const C = { green: '#16734d', deep: '#164735', ink: '#203f34', mint: '#e8f4ec', gold: '#ba8c45', paper: '#fbfdfb', muted: '#627b70' };
   const FONT = '"HuahaiChinese", "PingFang SC", "Microsoft YaHei", sans-serif';
   function shape(ctx, fill, fn, stroke, width = 1) { ctx.beginPath(); fn(); if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = width; ctx.stroke(); } }
   function ellipse(ctx, x, y, rx, ry, fill, rotation = 0) { shape(ctx, fill, () => ctx.ellipse(x, y, rx, Math.max(.1, ry), rotation, 0, Math.PI * 2)); }
   function gradient(ctx, x, y, x2, y2, stops) { const g = ctx.createLinearGradient(x, y, x2, y2); stops.forEach(([p, c]) => g.addColorStop(p, c)); return g; }
   function round(ctx, x, y, w, h, r, fill, stroke) { shape(ctx, fill, () => ctx.roundRect(x, y, w, h, r), stroke); }
-  function text(ctx, str, x, y, size = 24, color = C.ink, weight = 400, align = 'left') { ctx.font = `${weight} ${size}px ${FONT}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(str, x, y); }
-  function wrap(ctx, str, maxWidth, size = 24, weight = 400) { ctx.font = `${weight} ${size}px ${FONT}`; const lines = []; let line = ''; for (const c of str) { if (line && ctx.measureText(line + c).width > maxWidth) { lines.push(line); line = c; } else line += c; } if (line) lines.push(line); return lines; }
+  function text(ctx, str, x, y, size = 24, color = C.ink, weight = 400, align = 'left') { ctx.font = `${weight} ${size}px ${FONT}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(translate(str), x, y); }
+  function wrap(ctx, str, maxWidth, size = 24, weight = 400) { ctx.font = `${weight} ${size}px ${FONT}`; const lines = []; let line = ''; for (const c of (/^[\x00-\x7f]|[áéíóúãõçñ]/i.test(translate(str))?(translate(str).match(/\S+\s*|\s+/g)||[]):Array.from(translate(str)))) { if (line && ctx.measureText(line + c).width > maxWidth) { lines.push(line); line = c; } else line += c; } if (line) lines.push(line); return lines; }
   function lines(ctx, str, x, y, width, size = 24, color = C.ink, weight = 400, lineHeight = 1.5) { const ls = wrap(ctx, str, width, size, weight); ls.forEach((s, i) => text(ctx, s, x, y + i * size * lineHeight, size, color, weight)); return ls.length * size * lineHeight; }
   function leaf(ctx, x, y, size, fill, rot = 0) { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); shape(ctx, fill, () => { ctx.moveTo(0, 0); ctx.bezierCurveTo(-size, -size, size * .1, -size * 1.7, size, -size * 1.35); ctx.bezierCurveTo(size * .9, -size * .3, size * .5, size * .1, 0, 0); }); ctx.restore(); }
   function landscape(ctx, w, h) {
@@ -50,7 +52,8 @@
       round(ctx, bx, y, bw, h, 14, i === 1 ? '#e3f0e7' : '#f3f8f3', '#d3e5d8');
       // 生长纹理，与每个真实业务阶段对应。
       leaf(ctx, bx + bw / 2, y + h * .34, h * .105, i === 1 ? C.green : '#719b7e', -.35);
-      text(ctx, title, bx + bw / 2, y + h * .53, font, C.deep, 600, 'center');
+      ctx.font=`600 ${font}px ${FONT}`;const titleSize=Math.min(font,font*(bw-24)/Math.max(1,ctx.measureText(translate(title)).width));
+      text(ctx, title, bx + bw / 2, y + h * .53, titleSize, C.deep, 600, 'center');
       wrap(ctx, sub, bw - 24, font * .65).forEach((l, k) => text(ctx, l, bx + bw / 2, y + h * .75 + k * font * .9, font * .65, C.muted, 400, 'center'));
       if (i < 2) shape(ctx, null, () => { const ax = bx + bw + gap * .16, ay = y + h / 2; ctx.moveTo(ax, ay); ctx.lineTo(ax + gap * .66, ay); ctx.moveTo(ax + gap * .45, ay - 5); ctx.lineTo(ax + gap * .66, ay); ctx.lineTo(ax + gap * .45, ay + 5); }, '#78977f', 1.6);
     });
@@ -77,6 +80,6 @@
     ctx.fillStyle = '#d8e7dc'; ctx.fillRect(0, 1074, 1920, 6); ctx.fillStyle = C.green; ctx.fillRect(0, 1074, 1920 * progress, 6);
     knowledge.chapters.forEach((ch, i) => text(ctx, ch.label, 944 + i * 153, 74, 18, i === chapterIndex ? C.green : '#6e8679', i === chapterIndex ? 600 : 400));
   }
-  root.HuahaiVisuals = { avatar, diagram, video, wrap, colors: C };
+  root.HuahaiVisuals = { avatar, diagram, video, wrap, setTranslator, colors: C };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.HuahaiVisuals;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

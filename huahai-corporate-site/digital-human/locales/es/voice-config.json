@@ -1,0 +1,9 @@
+{
+  "version": "20261011-language-voices-v2",
+  "model": "qwen3-tts-flash",
+  "language": "Spanish",
+  "profileHash": "5fa61546f1ef55b72b533427fcb95e415bb5af5a7be02300ac7ba1b606e3110e",
+  "provider": "dashscope",
+  "voiceType": "system",
+  "voice": "Sonrisa"
+}

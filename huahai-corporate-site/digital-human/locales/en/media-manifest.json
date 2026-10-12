@@ -1,0 +1,433 @@
+{
+  "locale": "en",
+  "version": "2026-10-03-v2",
+  "contentHash": "86a15767f4f020bbc5b36f5ea960e6f52cc56e3e5c0f9028367488f7fc6403c1",
+  "characterConfigHash": "5e6da92047fc86dd803bbcf76082ec108b2061f6d09a829c59040dedea5474c5",
+  "voiceConfigHash": "2e05b6aa69190b1d5dcac6a3d5352e9e518b20bb2a066814dd9f718c7f17b22b",
+  "spriteHash": "f82ae90d746c817224adf538b52aaf72d4f8444ed45733aaec238916500b7826",
+  "voice": "qwen3-tts-flash/Jennifer",
+  "alignment": "qwen3-filetrans-word-timestamps",
+  "chapters": [
+    {
+      "id": "strategy",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-strategy.mp3",
+      "duration": 137.16000000000003,
+      "cues": [
+        {
+          "start": 2.08,
+          "end": 25.84,
+          "text": "Hello, I’m Xiaoxi — Huahai AgriTech’s digital presenter. Next, I’ll guide you through Huahai AgriTech from six perspectives: corporate strategy, development philosophy, technical approach, the Aimaimai product, the AI-powered full production-to-sales chain, and the agriculture/food/wellbeing ecosystem."
+        },
+        {
+          "start": 26.2,
+          "end": 34.2,
+          "text": "Let’s begin with corporate strategy. Huahai AgriTech’s operating entity is Shenzhen Huahai Agricultural Science and Technology Group Co., Ltd."
+        },
+        {
+          "start": 34.28,
+          "end": 45.64,
+          "text": "According to the company’s official website, the group was founded in 2017 as a Shenzhen-based enterprise supporting Xinjiang development, with integrated AI and agriculture as its core focus."
+        },
+        {
+          "start": 46.2,
+          "end": 56.760000000000005,
+          "text": "Huahai AgriTech aims to connect technology R&D, production services, trade circulation, and industrial collaboration—enabling information flow across the agricultural value chain."
+        },
+        {
+          "start": 57.120000000000005,
+          "end": 65.12,
+          "text": "The production-facing side focuses on cultivating and raising well, identifying risks, and continuously building credible production records."
+        },
+        {
+          "start": 65.68,
+          "end": 73.84,
+          "text": "The distribution end focuses on how quality is expressed, how products are graded, and how inventory, orders, and fulfillment coordinate."
+        },
+        {
+          "start": 74.32000000000001,
+          "end": 83.12,
+          "text": "The consumer-facing side focuses on what is purchased, where it comes from, whether it meets individual needs, and how service is accessed when issues arise."
+        },
+        {
+          "start": 83.68,
+          "end": 88.56,
+          "text": "Linking these questions together forms a full-chain perspective—from field to table."
+        },
+        {
+          "start": 88.92000000000002,
+          "end": 101.56000000000002,
+          "text": "The official website outlines industrial deployment across livestock farming, aquaculture, and salt-tolerant rice cultivation—extending further into synthetic biology, agricultural product processing, and trusted data services."
+        },
+        {
+          "start": 102.20000000000002,
+          "end": 114.20000000000002,
+          "text": "Facing these diverse scenarios, Huahai AgriTech’s strategic direction is to progressively establish a collaborative system capable of accumulating data, supporting decisions, organizing supply, and serving consumers."
+        },
+        {
+          "start": 114.48000000000002,
+          "end": 123.52000000000002,
+          "text": "Among these, Aimaimai serves as a key product vehicle for consumption and transactions — connecting products from origins and merchants to consumers’ everyday needs."
+        },
+        {
+          "start": 124.00000000000001,
+          "end": 136.16000000000003,
+          "text": "This section outlines the company’s strategy and development direction. Specific base coverage, project outcomes, and operational effectiveness must be verified against actual projects and formal acceptance documentation."
+        }
+      ]
+    },
+    {
+      "id": "values",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-values.mp3",
+      "duration": 102.64,
+      "cues": [
+        {
+          "start": 2.08,
+          "end": 9.36,
+          "text": "Huahai AgriTech’s core principles are advancing agriculture with technology, enabling with AI, and prioritizing food safety."
+        },
+        {
+          "start": 9.6,
+          "end": 15.76,
+          "text": "Advancing agriculture with technology means technology must respond to real-world challenges on the farm"
+        },
+        {
+          "start": 16.08,
+          "end": 24.32,
+          "text": "For example: Can environmental data be viewed promptly? Can anomalies be detected earlier? Can production records be saved and retrieved conveniently?"
+        },
+        {
+          "start": 24.8,
+          "end": 31.6,
+          "text": "Assessing technological value requires examining outcomes in real-world scenarios—not merely counting system features."
+        },
+        {
+          "start": 31.68,
+          "end": 37.28,
+          "text": "AI empowerment means enabling data, models, and professional expertise to work together."
+        },
+        {
+          "start": 37.56,
+          "end": 46.68,
+          "text": "AI can help interpret information, organize evidence, generate suggestions, and also enable consumers to express purchasing preferences more conveniently."
+        },
+        {
+          "start": 46.760000000000005,
+          "end": 56.84,
+          "text": "For production operations, AI recommendations must still be assessed against data quality, agronomic expertise and equipment conditions, and confirmed by a person."
+        },
+        {
+          "start": 57.160000000000004,
+          "end": 66.28,
+          "text": "‘Food safety first’ means valuing origin, production process, testing information, logistics records, and traceability and service following any issue."
+        },
+        {
+          "start": 66.88,
+          "end": 74.72,
+          "text": "Digital recordkeeping supports process verification, but completeness of records does not automatically equate to quality compliance."
+        },
+        {
+          "start": 75.12,
+          "end": 82.64,
+          "text": "Test conclusions must correspond to specific batches and valid reports; product claims must align with verifiable evidence."
+        },
+        {
+          "start": 82.88,
+          "end": 92,
+          "text": "For consumers, these principles should manifest in clearer product information, more transparent transaction processes, and more reliable service experiences."
+        },
+        {
+          "start": 92.28,
+          "end": 101.56,
+          "text": "Huahai AgriTech seeks to embed these principles into concrete production, circulation, and consumption steps through sustained technological development and industrial collaboration."
+        }
+      ]
+    },
+    {
+      "id": "technology",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-technology.mp3",
+      "duration": 126.4,
+      "cues": [
+        {
+          "start": 2.08,
+          "end": 9.6,
+          "text": "Huahai’s technical approach can be understood across five stages: sensing, connecting, understanding, decision-making, and feedback."
+        },
+        {
+          "start": 9.92,
+          "end": 18.88,
+          "text": "The perception layer collects information on environment, production processes, and product batches via sensors, images, and manual records."
+        },
+        {
+          "start": 19.2,
+          "end": 27.12,
+          "text": "Measurement range, installation conditions, and calibration status of different devices directly affect whether collected data can be used for assessment."
+        },
+        {
+          "start": 27.28,
+          "end": 36.72,
+          "text": "The connectivity layer uses edge intelligent gateways to link on-site equipment with the platform, handling device onboarding, data transmission, and offline recovery."
+        },
+        {
+          "start": 37.08,
+          "end": 45.8,
+          "text": "Edge-side capability can be understood as on-site AI ‘cerebellum’; cloud capability can be understood as centralized analytical AI ‘cerebrum’."
+        },
+        {
+          "start": 46.2,
+          "end": 53.96,
+          "text": "This is a simplified description of technical division of labor; specific algorithms and control capabilities still require validation per project."
+        },
+        {
+          "start": 54.54,
+          "end": 65.26,
+          "text": "The understanding layer organizes environmental changes, production records, product information, and business context so models operate within clearly defined informational boundaries."
+        },
+        {
+          "start": 65.6,
+          "end": 73.84,
+          "text": "The decision-support layer must combine AI suggestions with business rules, agronomic requirements and human confirmation to provide explainable support for judgment."
+        },
+        {
+          "start": 74.56,
+          "end": 81.19999999999999,
+          "text": "The feedback layer records execution results, service outcomes, and subsequent changes—providing a basis for further improvement."
+        },
+        {
+          "start": 81.6,
+          "end": 89.52,
+          "text": "Within Aimaimai, existing code already includes voice intent recognition, product search, budget-based guidance, and AI-powered dialogue flows."
+        },
+        {
+          "start": 89.88,
+          "end": 104.2,
+          "text": "In agricultural automation, device acknowledgments, access permissions, stop mechanisms, and real-world operational acceptance remain essential—AI recommendations alone do not constitute completion."
+        },
+        {
+          "start": 104.67999999999999,
+          "end": 125.4,
+          "text": "The official website also introduces collaborative directions including synthetic biology, trusted traceability, privacy-preserving computation, and agricultural finance and insurance—each requiring phased advancement aligned with respective qualifications, partnerships, and implementation conditions."
+        }
+      ]
+    },
+    {
+      "id": "product",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-product.mp3",
+      "duration": 107.28,
+      "cues": [
+        {
+          "start": 2.08,
+          "end": 6,
+          "text": "Next, we introduce the Aimaimai product—a multi-merchant agricultural e-commerce system."
+        },
+        {
+          "start": 6.32,
+          "end": 11.84,
+          "text": "The Buyer App, WeChat Mini Program, Seller Backend, and Management Backend all connect to a unified business backend."
+        },
+        {
+          "start": 11.84,
+          "end": 21.04,
+          "text": "For buyers, the product provides transaction services including product discovery, search, details, shopping cart, checkout, order management, and after-sales support."
+        },
+        {
+          "start": 21.52,
+          "end": 28.96,
+          "text": "The App and WeChat Mini Program accommodate different usage habits; specific pages and AI capabilities remain subject to their respective versions."
+        },
+        {
+          "start": 29.319999999999997,
+          "end": 37.239999999999995,
+          "text": "For sellers, the backend manages product information, specifications and inventory, order fulfillment, and merchant service administration."
+        },
+        {
+          "start": 37.64,
+          "end": 44.76,
+          "text": "For the platform, the management backend handles merchant and product review, order operations, and service coordination."
+        },
+        {
+          "start": 45.16,
+          "end": 56.84,
+          "text": "AI serves as an enabling capability connecting these experiences. Users may express search, budget-guided shopping, or page-operation requests using natural language."
+        },
+        {
+          "start": 57.239999999999995,
+          "end": 65.08,
+          "text": "The backend converts these expressions into constrained intents and parameters, then routes them into corresponding product and business workflows."
+        },
+        {
+          "start": 65.44,
+          "end": 74.48,
+          "text": "Note: Some standard recommendation modules remain placeholder implementations; therefore, not all recommendations should be described as completed personalized AI engines."
+        },
+        {
+          "start": 74.88,
+          "end": 84.48,
+          "text": "Traceability functionality relies on actual associations between product batches and process records; displayed scope depends on valid information already entered by the merchant."
+        },
+        {
+          "start": 84.48,
+          "end": 95.36,
+          "text": "Membership benefits, consumption points, platform red envelopes, and digital assets each follow distinct rules; they cannot be treated as a single balance nor described as fixed-return commitments."
+        },
+        {
+          "start": 95.72,
+          "end": 106.2,
+          "text": "Within the Huahai ecosystem, Aimaimai serves to connect product information, consumer demand, transaction processes, and after-sales service more seamlessly."
+        }
+      ]
+    },
+    {
+      "id": "chain",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-chain.mp3",
+      "duration": 128.56,
+      "cues": [
+        {
+          "start": 2.08,
+          "end": 13.04,
+          "text": "The AI-integrated production-to-consumption chain model places production, processing, distribution, sales, and consumer feedback within a single collaborative perspective."
+        },
+        {
+          "start": 13.84,
+          "end": 21.2,
+          "text": "Step 1: Collect environmental, input, agronomic, and growth process records at the production end to support management decisions"
+        },
+        {
+          "start": 21.52,
+          "end": 31.12,
+          "text": "Step 2: Generate grading, batch, testing, and packaging information during processing and quality control so product characteristics can be accurately expressed"
+        },
+        {
+          "start": 31.12,
+          "end": 38.48,
+          "text": "Step 3: Organize products, inventory, orders, and fulfillment in distribution and sales to connect supply with actual demand"
+        },
+        {
+          "start": 38.84,
+          "end": 47.56,
+          "text": "Step 4: Collect demand, reviews, repurchase behavior, and service feedback from consumers — within legally authorized scope"
+        },
+        {
+          "start": 47.56,
+          "end": 57.32000000000001,
+          "text": "Step 5: Use this feedback to analyze shifts in supply and demand, informing subsequent product selection, inventory preparation, and production planning"
+        },
+        {
+          "start": 57.800000000000004,
+          "end": 68.44,
+          "text": "An example implementation scenario: a farming base records water quality and breeding batches; qualified products undergo grading and testing before entering sales channels."
+        },
+        {
+          "start": 68.68,
+          "end": 78.12,
+          "text": "Consumers explore product information, complete purchases, and provide feedback on specifications, taste, and service experience via Aimaimai."
+        },
+        {
+          "start": 78.48,
+          "end": 85.92,
+          "text": "Farms and merchants adjust subsequent product portfolios and supply rhythms based on real orders and feedback."
+        },
+        {
+          "start": 86.72,
+          "end": 95.28,
+          "text": "AI can assist in information organization, demand interpretation, anomaly identification, and planning suggestions throughout this process."
+        },
+        {
+          "start": 95.68,
+          "end": 106.4,
+          "text": "This closed loop requires stable equipment data, complete business records, and explicit data authorization—not merely integration with a large language model alone."
+        },
+        {
+          "start": 106.92,
+          "end": 117.56,
+          "text": "Currently, Aimaimai provides foundational code for consumer and transaction-related functions; automated coordination between production planning and consumer feedback remains an ongoing development priority."
+        },
+        {
+          "start": 118.04,
+          "end": 127.48,
+          "text": "Huahai AgriTech aims progressively to support supply organization with authentic demand, express quality with production evidence, and inform next-cycle improvements with feedback."
+        }
+      ]
+    },
+    {
+      "id": "health",
+      "audio": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/en-health.mp3",
+      "duration": 140.92000000000002,
+      "cues": [
+        {
+          "start": 2.08,
+          "end": 8,
+          "text": "Finally, let’s explore Huahai AgriTech’s AI-powered agriculture/food/wellbeing ecosystem."
+        },
+        {
+          "start": 8,
+          "end": 16.4,
+          "text": "This direction is grounded in agriculture and food, focusing on source production conditions, food quality, nutritional information, and daily consumer services."
+        },
+        {
+          "start": 16.72,
+          "end": 24.4,
+          "text": "At the origin, green inputs, production management, and process documentation form an important foundation for quality discussions."
+        },
+        {
+          "start": 24.56,
+          "end": 35.52,
+          "text": "At the product level, the official website outlines deep processing of agricultural and food products, as well as R&D and industrial deployment in functional foods and traditional Chinese medicine–food synergy."
+        },
+        {
+          "start": 35.88,
+          "end": 43.400000000000006,
+          "text": "These directions require alignment with specific raw materials, R&D evidence, food standards, and applicable qualifications."
+        },
+        {
+          "start": 43.88,
+          "end": 52.760000000000005,
+          "text": "At the consumer end, Aimaimai helps shoppers view product information, express purchasing preferences, and receive transaction and service support."
+        },
+        {
+          "start": 52.84,
+          "end": 61.88,
+          "text": "AI can assist in interpreting existing information and organizing selection criteria, making complex product documentation easier to understand."
+        },
+        {
+          "start": 62.36,
+          "end": 68.84,
+          "text": "However, food descriptions cannot substitute for medical diagnosis, and ordinary food must not be claimed to treat diseases."
+        },
+        {
+          "start": 69.2,
+          "end": 79.60000000000001,
+          "text": "For special health-related needs, product selection still requires reference to product labeling and professional advice; AI responses must not be treated as individual treatment plans."
+        },
+        {
+          "start": 80.24000000000001,
+          "end": 90,
+          "text": "This ecosystem also requires participation from agricultural bases, food enterprises, research institutions, testing service providers, and logistics partners."
+        },
+        {
+          "start": 90.48,
+          "end": 102.16,
+          "text": "Huahai AgriTech seeks to establish clearer connections among origin production, product R&D, trustworthy information, and household consumption—through technology and industrial collaboration."
+        },
+        {
+          "start": 102.52000000000001,
+          "end": 114.60000000000001,
+          "text": "It is an ecological pathway requiring continuous development and verification; specific projects and product capabilities must be validated by actual qualifications, product documentation, and operational evidence."
+        },
+        {
+          "start": 115.44000000000001,
+          "end": 139.84,
+          "text": "From agricultural production to household dining tables, and from data collection to intelligent services, Huahai AgriTech aims to bring technology closer to industry, make quality more visible, and facilitate smoother collaboration between supply and demand. Advancing agriculture with technology, enabling with AI, prioritizing food safety. Thank you for listening — we welcome you to explore the future of AI-powered agriculture with Huahai AgriTech."
+        }
+      ]
+    }
+  ],
+  "film": {
+    "locale": "en",
+    "preview": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/huahai-brand-film-en-preview.mp4",
+    "download": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-en-2c6c66722d9a/huahai-brand-film-en.mp4",
+    "poster": "media/brand-film-en-cover.png",
+    "subtitle": "media/huahai-brand-film-en.srt",
+    "duration": 495.84,
+    "shots": 55
+  }
+}

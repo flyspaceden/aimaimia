@@ -12,3 +12,9 @@ dialog { margin: auto; }
 .opening-actions { display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-top:20px; }
 .opening-actions a { font-size:14px; }
 @media(max-width:760px) { .narration-language { padding-inline:18px; } }
+
+.narration-language{display:flex;gap:20px;align-items:center;flex-wrap:wrap}.narration-language p{margin:0}.narration-language label{display:flex;gap:8px;align-items:center;white-space:nowrap}.narration-language select{background:#fff;border:1px solid var(--line);border-radius:6px;padding:7px 10px;color:var(--deep)}.chapters button{overflow-wrap:anywhere;min-height:44px}.video-downloads{flex-wrap:wrap}
+
+@media(pointer:coarse){.narration-language select{min-height:44px}}main[lang="ja"],dialog[lang="ja"]{font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif}
+
+@media(max-width:360px){.site-header .header-inner>.brand{gap:6px}.site-header .header-inner .brand img{width:32px;height:32px}.site-header .header-inner .brand-text .zh,.site-header .header-inner .brand-text .en{max-width:86px}}

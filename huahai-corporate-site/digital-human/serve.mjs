@@ -1,7 +1,7 @@
 import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';
 // 首期只预览静态公司讲解，不开放模型代理。
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),port=Number(process.env.HUAHAI_DIGITAL_HUMAN_PORT||8768);
-const pages=new Set(['index.html','about.html','business.html','technology.html','industry.html','contact.html','privacy.html','terms.html']);
+const pages=new Set(['index.html','about.html','business.html','technology.html','industry.html','contact.html','privacy.html','terms.html','health.html','agriculture.html','food-medicine.html','healthy-recipes.html']);
 const digital=new Set(['index.html','style.css','app.js','faq.js','visuals.js','knowledge.json','character-config.json','voice-config.json','assets/rhino-sprites.png']);
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.mp3':'audio/mpeg','.mp4':'video/mp4','.srt':'text/plain; charset=utf-8','.vtt':'text/vtt; charset=utf-8'};
 if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid preview port');
@@ -13,7 +13,7 @@ http.createServer((req,res)=>{
   if(name==='digital-human'){res.writeHead(302,{Location:'/digital-human/'});return res.end();}
   if(!name||name==='digital-human/')name+='index.html';
   const child=name.startsWith('digital-human/')?name.slice(14):null;
-  const allowed=pages.has(name)||(name.startsWith('assets/')&&['.css','.js','.json','.jpg','.png','.webp'].includes(path.extname(name)))||(child&&(digital.has(child)||/^media\/[a-z0-9-]+\.(mp3|mp4|png|json|srt|vtt)$/.test(child)));
+  const allowed=pages.has(name)||(name.startsWith('assets/')&&['.css','.js','.json','.jpg','.png','.webp'].includes(path.extname(name)))||(child&&(digital.has(child)||/^locales\/(en|es|pt|ja)\/(knowledge|promo-knowledge|ui|translation-manifest|voice-config|media-manifest|published-media)\.json$/.test(child)||/^media\/[a-z0-9-]+\.(mp3|mp4|png|json|srt|vtt)$/.test(child)));
   const file=path.resolve(root,name);
   if(!allowed||!file.startsWith(root+path.sep)){res.writeHead(404);return res.end();}
   let stat;try{stat=fs.statSync(file);if(!stat.isFile())throw new Error();}catch{res.writeHead(404);return res.end();}

@@ -14,15 +14,16 @@
     {index:10,phrases:['治疗疾病','治病','疗效','治愈','医疗功效']},
     {index:11,phrases:['合作伙伴','如何合作','怎样合作','参与合作']},
   ];
-  function answer(question,knowledge){
-    const text=question.trim().toLowerCase().replace(/[\s，。？！、,.?!：:]/g,'');
-    const exact=knowledge.faq.find(item=>item.q.toLowerCase().replace(/[\s，。？！、,.?!：:]/g,'')===text);
-    if(exact)return{answer:exact.a,sources:['公司常见问题']};
-    const matches=routes.filter(r=>r.phrases.some(p=>text.includes(p))).slice(0,2).map(r=>knowledge.faq[r.index]);
-    if(matches.length)return{answer:matches.map(item=>item.a).join('\n\n'),sources:['公司常见问题']};
-    const chapter=knowledge.chapters.find(ch=>text===ch.label.toLowerCase());
-    if(chapter)return{answer:chapter.description+'\n'+chapter.points.join('；')+'。可以选择上方对应主题，查看完整讲稿或收听讲解。',sources:['主题讲解资料']};
-    return{answer:'公司资料中还没有这个问题的说明。你可以选择上方六个讲解主题、点选常见问题，或通过官网联系华海了解更多。',sources:[]};
+  function answer(question,knowledge,translate=s=>s,locale='zh-CN'){
+    const norm=s=>s.normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu,'');
+    const text=norm(question);
+    const exact=knowledge.faq.find(item=>norm(item.q)===text);
+    if(exact)return{answer:exact.a,sources:[translate('公司常见问题')]};
+    const matches=routes.filter(r=>r.phrases.some(p=>text.includes(norm(translate(p))))).slice(0,2).map(r=>knowledge.faq[r.index]);
+    if(matches.length)return{answer:matches.map(item=>item.a).join('\n\n'),sources:[translate('公司常见问题')]};
+    const chapter=knowledge.chapters.find(ch=>norm(ch.label)===text);
+    if(chapter)return{answer:chapter.description+'\n'+chapter.points.join('；')+translate('。可以选择上方对应主题，查看完整讲稿或收听讲解。'),sources:[translate('主题讲解资料')]};
+    return{answer:translate('公司资料中还没有这个问题的说明。你可以选择上方六个讲解主题、点选常见问题，或通过官网联系华海了解更多。'),sources:[]};
   }
   root.HuahaiFAQs={answer};
   if(typeof module!=='undefined'&&module.exports)module.exports=root.HuahaiFAQs;

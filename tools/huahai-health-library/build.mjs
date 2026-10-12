@@ -27,7 +27,7 @@ function page(name, title, description, body, extra = '') {
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | 华海农科</title><meta name="description" content="${description}"><link rel="icon" href="assets/logo.jpg"><link rel="stylesheet" href="assets/style.css?v=20261004-digital1"><link rel="stylesheet" href="assets/health-library.css?v=${version}">${extra}</head>
 <body>${header}<p class="knowledge-language-note">知识内容为中文原文。</p><main class="knowledge-page" lang="zh-CN" dir="ltr" data-translation-ignore>
 <div class="container">${subnav(name)}${body}</div></main>${footer}
-<script src="assets/script.js?v=${version}"></script><script src="assets/health-library.js?v=${version}" defer></script>${name==='agriculture'?`<script src="assets/farming-calendar.js?v=${version}" defer></script>`:''}</body></html>\n`
+<script src="assets/script.js?v=20261011-languages1"></script><script src="assets/health-library.js?v=${version}" defer></script>${name==='agriculture'?`<script src="assets/farming-calendar.js?v=${version}" defer></script>`:''}</body></html>\n`
 }
 write('health.html', page('health', '大健康知识库', '华海农科大健康知识库，阅读节气农事、药食同源资料与每日三餐搭配。', `
 <section class="knowledge-hero"><p class="knowledge-kicker">华海农科 · 公开知识</p><h1>大健康知识库</h1><p class="knowledge-intro">从四季农事到日常饮食，把值得了解的知识放在一起。选择一个主题，开始阅读。</p><div class="knowledge-hero-mark" aria-hidden="true"><span>农</span><span>食</span><span>养</span></div></section>
