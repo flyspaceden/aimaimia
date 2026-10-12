@@ -38,8 +38,8 @@ afterEach(() => {
   else process.env.DASHSCOPE_API_KEY = previousKey;
 });
 
-async function begin() {
-  const result = service.recognize(Buffer.alloc(512), 'pcm');
+async function begin(audio = Buffer.alloc(512)) {
+  const result = service.recognize(audio, 'pcm');
   await Promise.resolve();
   const socket = sockets()[0];
   open(socket);
@@ -108,4 +108,18 @@ describe('Paraformer recording transcription', () => {
     await expect(result).resolves.toMatchObject({ text: '打开我的订单。' });
     expect(jest.getTimerCount()).toBe(0);
   });
+});
+
+
+it('gives a minute-long recording more time without returning its first sentence alone', async () => {
+  const { result, socket } = await begin(Buffer.alloc(16000 * 2 * 60));
+  let settled = false;
+  void result.then(() => { settled = true; });
+  event(socket, 'task-started');
+  sentence(socket, '帮我找苹果。');
+  await jest.advanceTimersByTimeAsync(12000);
+  expect(settled).toBe(false);
+  sentence(socket, '不要超过五十元。');
+  event(socket, 'task-finished');
+  await expect(result).resolves.toMatchObject({ text: '帮我找苹果。不要超过五十元。' });
 });
