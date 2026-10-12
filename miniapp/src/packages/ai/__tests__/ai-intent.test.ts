@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { candidateToIntent, resolveAiAction } from '../intent';
+import { aiReply, candidateToIntent, resolveAiAction } from '../intent';
 import { isAiVoiceIntent } from '../repo';
 
 vi.mock('@/platform/voice', () => ({
@@ -64,7 +64,7 @@ describe('miniapp AI voice contract', () => {
       search: { query: '苹果' },
     }, '苹果');
     expect(intent.type).toBe('search');
-    expect(resolveAiAction(intent)?.url).toBe('/packages/commerce/catalog-search/index?q=%E8%8B%B9%E6%9E%9C');
+    expect(resolveAiAction(intent)?.url).toBe('/packages/commerce/catalog-search/index?q=%E8%8B%B9%E6%9E%9C&source=voice');
   });
 
   it('keeps all recommendation semantics when opening the AI recommendation page', () => {
@@ -109,5 +109,51 @@ describe('miniapp AI voice contract', () => {
       type: 'recommend', transcript: '今晚吃什么', feedback: '为你推荐',
       recommend: { recommendThemes: ['unsupported'] },
     })).toBe(false);
+  });
+});
+
+
+describe('voice actions preserve semantics and truthful feedback', () => {
+  it('keeps category, budget, dietary and origin conditions through the search route', () => {
+    const action = resolveAiAction({
+      type: 'search', transcript: '找山东低糖水果，五十元以内', feedback: '为你搜索',
+      search: { query: '水果', matchedCategoryId: 'fruit', constraints: ['low-sugar', 'organic'],
+        recommendThemes: ['seasonal'], maxPrice: 50, slots: { originPreference: '山东', dietaryPreference: '低糖' } },
+    });
+    const url = new URL(action!.url!, 'https://test.invalid');
+    expect(url.pathname).toBe('/packages/commerce/catalog-search/index');
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      q: '水果', categoryId: 'fruit', constraints: 'low-sugar,organic', maxPrice: '50',
+      recommendThemes: 'seasonal', originPreference: '山东', dietaryPreference: '低糖',
+    });
+  });
+
+  it('uses resolved-only semantics and does not invent a keyword for a category-only request', () => {
+    const action = resolveAiAction({ type: 'search', transcript: '便宜的水果', feedback: '为你搜索',
+      search: { query: '' }, resolved: { matchedCategoryId: 'fruit', budget: 30, constraints: ['organic'] } });
+    const url = new URL(action!.url!, 'https://test.invalid');
+    expect(url.searchParams.has('q')).toBe(false);
+    expect(url.searchParams.get('categoryId')).toBe('fruit');
+    expect(url.searchParams.get('maxPrice')).toBe('30');
+  });
+
+  it('opens the registered settings page with its existing login protection', () => {
+    expect(resolveAiAction({ type: 'navigate', transcript: '打开设置', feedback: '打开设置',
+      resolved: { navigateTarget: 'settings' } })).toEqual({
+      label: '打开设置', url: '/packages/settings/index/index', mode: 'navigate', requiresAuth: true,
+    });
+  });
+
+  it('does not claim that the miniapp performed an add-to-cart mutation', () => {
+    const intent = { type: 'search' as const, transcript: '把苹果加入购物车', feedback: '已将苹果加入购物车',
+      search: { query: '苹果', action: 'add-to-cart' as const, matchedProductId: 'apple' } };
+    expect(aiReply(intent)).toBe('已找到苹果，请确认规格后加入购物车');
+    expect(resolveAiAction(intent)?.label).toBe('确认规格后加入购物车');
+  });
+
+  it('opens the unpaid-shipping list rather than the shipped list', () => {
+    expect(resolveAiAction({ type: 'transaction', transcript: '查待发货订单', feedback: '查看订单',
+      transaction: { action: 'view-order', status: 'pendingShip' } }))
+      .toMatchObject({ url: '/packages/orders/order-list/index?status=PAID', requiresAuth: true });
   });
 });

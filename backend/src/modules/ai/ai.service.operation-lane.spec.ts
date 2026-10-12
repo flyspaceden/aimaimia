@@ -299,3 +299,49 @@ describe('AiService operation-lane regressions', () => {
     }
   });
 });
+
+
+describe('voice navigation and order status regressions', () => {
+  it.each(['我要查待发货订单', '看看未发货订单', '我的订单还没发货', '打开我的待发货订单'])('%s stays in pending shipment', async (transcript) => {
+    const { service } = createAiService();
+    const intent = await service.parseIntent(transcript, 'voice');
+    expect(intent).toMatchObject({ type: 'transaction', transaction: { action: 'view-order', status: 'pendingShip' },
+      resolved: { transactionStatus: 'pendingShip' } });
+  });
+
+  it('keeps an actual logistics request on shipped orders', async () => {
+    const { service } = createAiService();
+    expect(await service.parseIntent('查订单物流到哪了', 'voice'))
+      .toMatchObject({ type: 'transaction', transaction: { action: 'track-order', status: 'shipping' } });
+  });
+
+  it.each([
+    ['不要打开购物车，打开我的订单', 'orders'],
+    ['打开我的订单，不要打开购物车', 'orders'],
+    ['别打开设置，然后打开购物车', 'cart'],
+    ['打开我的购物车', 'cart'],
+    ['打开我的设置', 'settings'],
+  ])('%s selects only the requested positive target', async (transcript, target) => {
+    const { service } = createAiService();
+    expect(await service.parseIntent(transcript, 'voice')).toMatchObject({ type: 'navigate', resolved: { navigateTarget: target } });
+  });
+
+  it.each(['不要打开购物车', '别去购物车', '不去购物车', '别把苹果加入购物车', '打开购物车，打开我的订单', '打开购物车和我的订单', '下单后多久发货？'])('%s goes to semantic classification instead of a keyword action', async (transcript) => {
+    const { service } = createAiService();
+    const classify = jest.spyOn(service as any, 'qwenIntentClassify').mockResolvedValue({
+      intent: 'chat', confidence: 0.95, source: 'model', params: { reply: '为你解释，不执行操作。' },
+    });
+    expect(await service.parseIntent(transcript, 'voice')).toMatchObject({ type: 'chat', feedback: '为你解释，不执行操作。' });
+    expect(classify).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+it('corrects a model logistics guess when the user explicitly asked for pending shipment', async () => {
+  const { service } = createAiService();
+  const intent = await (service as any).handleTransactionClassification('查待发货订单', {
+    intent: 'transaction', confidence: 0.95, source: 'model',
+    params: { action: 'track-order', status: 'shipping', reply: '为你查询物流' },
+  });
+  expect(intent).toMatchObject({ transaction: { action: 'view-order', status: 'pendingShip' }, feedback: '正在为你查询待发货订单...' });
+});

@@ -18,19 +18,20 @@ function searchUrl(query?: string): string {
     : '/packages/commerce/catalog-search/index';
 }
 
-function recommendUrl(intent: AiVoiceIntent): string {
+function productResultsUrl(intent: AiVoiceIntent): string {
+  const search = intent.search;
   const recommend = intent.recommend;
-  const slots = recommend?.slots;
+  const slots = search?.slots || recommend?.slots;
   const resolved = intent.resolved;
   const params: Array<[string, string | number | boolean | string[] | undefined]> = [
-    ['q', recommend?.query || resolved?.query],
+    ['q', search?.query ?? recommend?.query ?? resolved?.query ?? (intent.type === 'search' ? intent.transcript : undefined)],
     ['source', 'voice'],
-    ['categoryId', recommend?.matchedCategoryId || resolved?.matchedCategoryId],
-    ['categoryName', recommend?.matchedCategoryName || resolved?.matchedCategoryName],
-    ['preferRecommended', recommend?.preferRecommended ?? slots?.preferRecommended ?? resolved?.preferRecommended],
-    ['constraints', recommend?.constraints || slots?.constraints || resolved?.constraints],
-    ['maxPrice', recommend?.budget ?? slots?.budget ?? resolved?.budget],
-    ['recommendThemes', recommend?.recommendThemes || slots?.recommendThemes || resolved?.recommendThemes],
+    ['categoryId', search?.matchedCategoryId || recommend?.matchedCategoryId || resolved?.matchedCategoryId],
+    ['categoryName', search?.matchedCategoryName || recommend?.matchedCategoryName || resolved?.matchedCategoryName],
+    ['preferRecommended', search?.preferRecommended ?? recommend?.preferRecommended ?? slots?.preferRecommended ?? resolved?.preferRecommended],
+    ['constraints', search?.constraints || recommend?.constraints || slots?.constraints || resolved?.constraints],
+    ['maxPrice', search?.maxPrice ?? recommend?.budget ?? slots?.budget ?? resolved?.budget],
+    ['recommendThemes', search?.recommendThemes || recommend?.recommendThemes || slots?.recommendThemes || resolved?.recommendThemes],
     ['usageScenario', slots?.usageScenario || resolved?.usageScenario],
     ['promotionIntent', slots?.promotionIntent || resolved?.promotionIntent],
     ['bundleIntent', slots?.bundleIntent || resolved?.bundleIntent],
@@ -46,7 +47,8 @@ function recommendUrl(intent: AiVoiceIntent): string {
       return `${encodeURIComponent(key)}=${encodeURIComponent(normalized)}`;
     })
     .join('&');
-  return `/packages/ai/recommend/index${query ? `?${query}` : ''}`;
+  const page = intent.type === 'search' ? 'commerce/catalog-search' : 'ai/recommend';
+  return `/packages/${page}/index${query ? `?${query}` : ''}`;
 }
 
 function transactionAction(intent: AiVoiceIntent): AiPageAction {
@@ -78,8 +80,7 @@ export function resolveAiAction(intent: AiVoiceIntent): AiPageAction | null {
           mode: 'navigate',
         };
       }
-      const query = intent.search?.query || intent.resolved?.query || intent.transcript;
-      return { label: '查看搜索结果', url: searchUrl(query), mode: 'navigate' };
+      return { label: '查看搜索结果', url: productResultsUrl(intent), mode: 'navigate' };
     }
     case 'company': {
       if (intent.resolved?.companyId) {
@@ -111,7 +112,8 @@ export function resolveAiAction(intent: AiVoiceIntent): AiPageAction | null {
       const target = intent.resolved?.navigateTarget;
       if (target === 'home') return { label: '回到首页', url: '/pages/home/index', mode: 'switchTab' };
       if (target === 'discover') return { label: '打开发现', url: '/pages/products/index', mode: 'switchTab' };
-      if (target === 'me' || target === 'settings') return { label: '打开我的', url: '/pages/me/index', mode: 'switchTab' };
+      if (target === 'me') return { label: '打开我的', url: '/pages/me/index', mode: 'switchTab' };
+      if (target === 'settings') return protectedAction('打开设置', '/packages/settings/index/index');
       if (target === 'cart') return protectedAction('打开购物车', '/packages/commerce/cart/index');
       if (target === 'checkout') return protectedAction('继续结算', '/packages/commerce/checkout/index');
       if (target === 'orders') return protectedAction('查看我的订单', '/packages/orders/order-list/index');
@@ -121,7 +123,7 @@ export function resolveAiAction(intent: AiVoiceIntent): AiPageAction | null {
     case 'transaction':
       return transactionAction(intent);
     case 'recommend': {
-      return { label: '查看 AI 推荐', url: recommendUrl(intent), mode: 'navigate' };
+      return { label: '查看 AI 推荐', url: productResultsUrl(intent), mode: 'navigate' };
     }
     case 'chat':
     case 'clarify':
@@ -141,5 +143,10 @@ export function candidateToIntent(candidate: AiClarifyCandidate, transcript: str
 }
 
 export function aiReply(intent: AiVoiceIntent): string {
+  if (intent.search?.action === 'add-to-cart'
+    && (intent.search.matchedProductId || intent.resolved?.matchedProductId)) {
+    const name = intent.search.matchedProductName || intent.resolved?.matchedProductName || intent.search.query || '商品';
+    return `已找到${name}，请确认规格后加入购物车`;
+  }
   return intent.chatResponse?.reply?.trim() || intent.feedback.trim();
 }

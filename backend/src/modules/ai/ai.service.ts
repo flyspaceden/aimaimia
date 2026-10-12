@@ -782,6 +782,12 @@ export class AiService {
     // 页面/动作导航：打开购物车、去结算、回首页等
     const navigateTarget = this.extractNavigationTarget(trimmed);
     if (navigateTarget) {
+      if (navigateTarget === 'orders' && this.inferTransactionStatus('view-order', trimmed) === 'pendingShip') {
+        return {
+          intent: 'transaction', params: { action: 'view-order', status: 'pendingShip' },
+          confidence: 0.95, source: 'rule',
+        };
+      }
       return {
         intent: 'navigate',
         params: { target: navigateTarget },
@@ -789,6 +795,10 @@ export class AiService {
         source: 'rule',
       };
     }
+
+    // 否定操作和规则问答交给语义分类，不能按其中的页面/订单名直接执行。
+    if (/(?:不要|别|不想|不用|无需|取消|不).*(?:打开|去|前往|进入|跳转|加入购物车|加购|结算|支付|付款|退款)/u.test(trimmed)
+      || /(?:打开|去|前往|进入|跳转|回到|返回|切到|切换到)/u.test(trimmed)) return null;
 
     const greetingReply = this.matchShortGreeting(trimmed);
     if (greetingReply) {
@@ -815,13 +825,13 @@ export class AiService {
 
     // 订单/物流/退款/退货 → 交易类，优先级高于 generic search，避免“有没有待付款订单”被识别成商品搜索
     const orderPattern = /订单|物流|快递|到哪了|发货|退[款货换]|付款|支付|买单|售后/;
-    if (orderPattern.test(trimmed)) {
+    if (orderPattern.test(trimmed) && !/(?:下单后|一般|通常|政策|规则|怎么|如何|多久|几天)/u.test(trimmed)) {
       const action = this.extractTransactionAction(trimmed);
       return {
         intent: 'transaction',
         params: {
           action,
-          status: this.inferTransactionStatus(action),
+          status: this.inferTransactionStatus(action, trimmed),
           reply: this.getTransactionFeedback(action),
         },
         confidence: 0.9,
@@ -1265,12 +1275,18 @@ export class AiService {
     transcript: string,
     classification: VoiceIntentClassification,
   ): Promise<AiVoiceIntent> {
-    const action = this.normalizeTransactionAction(
+    let action = this.normalizeTransactionAction(
       classification.params.action,
       this.extractTransactionAction(transcript),
     );
-    const reply = this.pickFirstString(classification.params.reply) || this.getTransactionFeedback(action);
-    const status = this.pickFirstString(classification.params.status) || this.inferTransactionStatus(action);
+    const inferredStatus = this.inferTransactionStatus(action, transcript);
+    if (inferredStatus === 'pendingShip' && action === 'track-order') action = 'view-order';
+    const reply = inferredStatus === 'pendingShip'
+      ? '正在为你查询待发货订单...'
+      : this.pickFirstString(classification.params.reply) || this.getTransactionFeedback(action);
+    const status = inferredStatus === 'pendingShip'
+      ? inferredStatus
+      : this.pickFirstString(classification.params.status) || inferredStatus;
 
     return this.withResolvedIntent({
       type: 'transaction',
@@ -1808,13 +1824,16 @@ export class AiService {
     if (/(?:return|退货)/u.test(merged)) return 'return';
     if (/(?:exchange|换货)/u.test(merged)) return 'exchange';
     if (/(?:pay-order|pay|付款|支付|买单)/u.test(merged)) return 'pay';
+    if (/(?:待发货|未发货|还没发货|尚未发货)/u.test(merged)) return 'view-order';
     if (/(?:track-order|tracking|物流|快递|发货|到哪了)/u.test(merged)) return 'track-order';
     if (/(?:view-order|order-list|订单|查订单|我的订单)/u.test(merged)) return 'view-order';
 
     return 'transaction';
   }
 
-  private inferTransactionStatus(action: AiVoiceTransactionAction): 'pendingPay' | 'shipping' | 'afterSale' | undefined {
+  private inferTransactionStatus(action: AiVoiceTransactionAction, transcript = ''): 'pendingPay' | 'pendingShip' | 'shipping' | 'afterSale' | undefined {
+    if ((action === 'view-order' || action === 'track-order')
+      && /(?:待发货|未发货|还没发货|尚未发货)/u.test(transcript)) return 'pendingShip';
     switch (action) {
       case 'pay':
         return 'pendingPay';
@@ -2194,6 +2213,16 @@ export class AiService {
 
   /** 从语音指令中提取页面跳转目标，只允许白名单页面 */
   private extractNavigationTarget(text: string): AiVoiceNavigateTarget | null {
+    const positiveClauses = text.split(/[，。！？,.!?；;]|(?:然后|接着|但是|不过)/u)
+      .filter((clause) => !/(?:不要|别|不用|不想|无需|取消|不(?:去|打开|进入|跳转|返回))/u.test(clause));
+    const targets = new Set<AiVoiceNavigateTarget>();
+    for (const clause of positiveClauses) {
+      for (const target of this.extractPositiveNavigationTargets(clause)) targets.add(target);
+    }
+    return targets.size === 1 ? targets.values().next().value! : null;
+  }
+
+  private extractPositiveNavigationTargets(text: string): AiVoiceNavigateTarget[] {
     const compact = text
       .replace(/[“”"'`]/g, '')
       .replace(/[，。！？,.!?]/g, '')
@@ -2201,18 +2230,18 @@ export class AiService {
       .trim();
 
     const hasNavigationVerb = /(?:打开|去|前往|进入|跳到|跳转到|带我去|带我到|回到|返回|切到|切换到|带我打开)/u.test(compact);
-
-    if (/(?:AI聊天|AI对话|AI农管家|农管家|聊天页|对话页|助手页)/u.test(compact)) return 'ai-chat';
-    if (/(?:设置|系统设置|账号设置)/u.test(compact) && hasNavigationVerb) return 'settings';
-    if (/(?:购物车|购物袋|购物篮)/u.test(compact) && hasNavigationVerb) return 'cart';
-    if (/(?:结算|付款|买单|提交订单)/u.test(compact) && hasNavigationVerb) return 'checkout';
-    if (/(?:我的订单|订单页|订单列表)/u.test(compact) && hasNavigationVerb) return 'orders';
-    if (/(?:首页|主页|回首页|主页面)/u.test(compact)) return 'home';
-    if (/(?:发现页|发现|逛逛)/u.test(compact) && hasNavigationVerb) return 'discover';
-    if (/(?:我的页面|个人中心|我的主页|我的)/u.test(compact) && hasNavigationVerb) return 'me';
-    if (/(?:搜索页|搜索页面|搜索)/u.test(compact) && hasNavigationVerb) return 'search';
-
-    return null;
+    const targets: AiVoiceNavigateTarget[] = [];
+    if (/(?:AI聊天|AI对话|AI农管家|农管家|聊天页|对话页|助手页)/u.test(compact)) targets.push('ai-chat');
+    if (/(?:设置|系统设置|账号设置)/u.test(compact) && hasNavigationVerb) targets.push('settings');
+    if (/(?:购物车|购物袋|购物篮)/u.test(compact) && hasNavigationVerb) targets.push('cart');
+    if (/(?:结算|付款|买单|提交订单)/u.test(compact) && hasNavigationVerb) targets.push('checkout');
+    if (/订单/u.test(compact) && hasNavigationVerb) targets.push('orders');
+    if (/(?:首页|主页|回首页|主页面)/u.test(compact)) targets.push('home');
+    if (/(?:发现页|发现|逛逛)/u.test(compact) && hasNavigationVerb) targets.push('discover');
+    if (hasNavigationVerb && (/(?:我的页面|个人中心|我的主页)/u.test(compact)
+      || (targets.length === 0 && /我的/u.test(compact)))) targets.push('me');
+    if (/(?:搜索页|搜索页面|搜索)/u.test(compact) && hasNavigationVerb) targets.push('search');
+    return targets;
   }
 
   /** 生成导航意图的用户反馈 */
@@ -3168,6 +3197,8 @@ export class AiService {
 {"intent":"navigate|search|company|transaction|recommend|chat","confidence":0.0,"params":{}}
 
 分类规则：
+- 被“不要/别/不用”等否定的动作不能作为目标；有明确肯定目标时只选肯定目标，仅有否定或多个冲突目标时用 chat 询问确认。
+- 发货政策、时效等问题用 chat 回答，不把“下单后多久发货”当作查物流；待发货订单的 status 为 pendingShip。
 - navigate：打开页面、去某个页面、回到某个页面。params.target 只能是：
   home / discover / me / settings / cart / checkout / orders / search / ai-chat
 - search：查找/搜索/浏览某类商品。params 可包含：
