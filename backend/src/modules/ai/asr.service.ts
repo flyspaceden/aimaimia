@@ -81,6 +81,8 @@ export class AsrService {
     }
 
     const { pcmBuffer, asrFormat, ffmpegMs } = await this.normalizeAudioBuffer(audioBuffer, format);
+    const audioDurationMs = Math.ceil(pcmBuffer.length / (16000 * 2) * 1000);
+    const recognitionTimeoutMs = Math.min(30_000, Math.max(this.RECOGNITION_TIMEOUT_MS, audioDurationMs));
     this.logger.log(
       `ASR 输入: model=paraformer-realtime-v2, format=${asrFormat}, 数据大小=${pcmBuffer.length} 字节` +
       (ffmpegMs !== undefined ? `, ffmpeg=${ffmpegMs}ms` : ''),
@@ -129,7 +131,7 @@ export class AsrService {
             try { ws.close(); } catch (_) { /* 忽略 */ }
             reject(new Error('ASR 识别超时'));
           }
-        }, this.RECOGNITION_TIMEOUT_MS);
+        }, recognitionTimeoutMs);
       };
 
       const bindSocketHandlers = () => {
