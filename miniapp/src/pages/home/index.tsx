@@ -139,6 +139,7 @@ export default function HomePage() {
         prepareId: prepared?.ok ? prepared.data.prepareId : undefined,
         page: 'miniapp-home',
       });
+      if (operation !== lifecycleRef.current) return;
       if (!result.ok) {
         Taro.showToast({ title: result.error.displayMessage || '没有听清楚，请再试一次', icon: 'none' });
         return;

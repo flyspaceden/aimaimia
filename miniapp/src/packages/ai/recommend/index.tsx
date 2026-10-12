@@ -10,6 +10,7 @@ import { queryClient } from '@/query/client';
 import { CartRepo } from '@/repos';
 import { useAuthStore } from '@/store/auth';
 import type { Product } from '@/types';
+import { decodeRouteCsv as routeCsv, decodeRouteText as routeText } from '@/packages/commerce/catalog-search/route-utils';
 import { AiRecommendRepo } from '../recommend-repo';
 import type {
   AiBundleIntent,
@@ -26,18 +27,6 @@ const constraintLabels: Record<string, string> = {
   'cold-chain': '冷链', 'geo-certified': '地理标志', healthy: '健康', fresh: '新鲜',
 };
 const PAGE_PATH = '/packages/ai/recommend/index';
-
-function routeText(value: unknown, maxLength = 128): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim();
-  return normalized ? normalized.slice(0, maxLength) : undefined;
-}
-
-function routeCsv(value: unknown, maxItems = 8): string[] {
-  const normalized = routeText(value, 256);
-  if (!normalized) return [];
-  return Array.from(new Set(normalized.split(',').map((item) => item.trim().slice(0, 32)).filter(Boolean))).slice(0, maxItems);
-}
 
 function routeBudget(value: unknown): number | undefined {
   const parsed = Number(value);
