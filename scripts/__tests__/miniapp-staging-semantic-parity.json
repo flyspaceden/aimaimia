@@ -491,5 +491,25 @@
       "sourceReviewCommit": "f3ec3e721eb81eb38a4d2f522418dd79a520d2ae",
       "reason": "Reviewed WeChat pickup shipping payload and recovery: all active pickup suborders must be collected, logistics type is user pickup, and JSONB hashes are canonical and retry-safe."
     }
+  ],
+  "reviewedVoiceDifferences": [
+    {
+      "path": "backend/src/modules/ai/ai.service.ts",
+      "gitBlob": "648709555d126132eb2daeff9073077a5362600e",
+      "sourceReviewCommit": "2151253200d39f034a128be03af8cdc2fb3c1c33",
+      "reason": "Reviewed voice navigation, negation and pending-shipment fixes; no new transaction or cross-tenant write path."
+    },
+    {
+      "path": "backend/src/modules/ai/asr.service.ts",
+      "gitBlob": "970999db14fce57f4ac06d7ba9c48b9569a7d23c",
+      "sourceReviewCommit": "2151253200d39f034a128be03af8cdc2fb3c1c33",
+      "reason": "Reviewed replacement for retired Gummy with compatible Paraformer v2; complete utterance and bounded long-audio handling."
+    },
+    {
+      "path": "backend/src/modules/ai/semantic-slot.constants.ts",
+      "gitBlob": "40cd9890d962095dcf096db5c82ae6f4057df5c7",
+      "sourceReviewCommit": "2151253200d39f034a128be03af8cdc2fb3c1c33",
+      "reason": "Reviewed matching semantic prompts for negated and conflicting navigation requests and pending-shipment status."
+    }
   ]
 }
