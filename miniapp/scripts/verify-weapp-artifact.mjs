@@ -105,9 +105,7 @@ assert.match(
 
 const appOutput = readDist('app.js');
 const baseTemplate = readDist('base.wxml');
-assert.match(appOutput, /openType:"agreePrivacyAuthorization"/, '隐私同意按钮应使用微信专用 open-type');
-assert.match(appOutput, /onAgreePrivacyAuthorization:/, '隐私同意按钮应绑定微信专用回调');
-assert.match(baseTemplate, /bindagreeprivacyauthorization="eh"/, 'WXML 应生成隐私授权事件绑定');
+assert.doesNotMatch(appOutput, /onNeedPrivacyAuthorization\s*\(/, 'App 根节点不得拦截微信原生隐私弹窗');
 assert.doesNotMatch(
   baseTemplate,
   /<scroll-view[^>]*\spadding=/,
@@ -123,6 +121,9 @@ const inspectableOutput = files
   .filter(({ relativePath }) => /\.(?:js|json|wxml)$/.test(relativePath))
   .map(({ relativePath }) => readDist(relativePath))
   .join('\n');
+assert.match(inspectableOutput, /\.requirePrivacyAuthorize\(/, '录音产物必须主动请求微信原生隐私授权');
+assert.match(inspectableOutput, /authorize\(\{scope:["']scope\.record["']/, '录音产物必须申请微信麦克风权限');
+
 const wxssOutput = files
   .filter(({ relativePath }) => relativePath.endsWith('.wxss'))
   .map(({ relativePath }) => readDist(relativePath))
