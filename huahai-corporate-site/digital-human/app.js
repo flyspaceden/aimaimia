@@ -128,7 +128,7 @@
     const token=++localeRequest;localeController?.abort();localeController=new AbortController();const signal=localeController.signal;
     generation++;audio.pause();audio.removeAttribute('src');audio.load();$('intro-video').pause();if($('video-dialog').open)$('video-dialog').close();stopSpeech();audioReady=false;manifest=null;knowledge=null;$('play-button').disabled=true;$('send-button').disabled=true;$('next-button').disabled=true;$('video-button').disabled=true;$('chapter-content').setAttribute('aria-busy','true');$('ai-status').textContent=tx('正在切换讲解语言');
     const prefix=selected==='zh-CN'?'':'locales/'+selected+'/';
-    async function json(file){const r=await fetch(file+'?v=20261011-languages1',{signal});if(!r.ok)throw new Error('Guide resource unavailable');return r.json();}
+    async function json(file){const r=await fetch(file+'?v=20261011-foreign-audit1',{signal});if(!r.ok)throw new Error('Guide resource unavailable');return r.json();}
     try{
       const [data,config,voice,media,ui]=await Promise.all([json(prefix+'knowledge.json'),json('character-config.json'),json(prefix+'voice-config.json'),json(prefix+'media-manifest.json'.replace(/^media-manifest/,selected==='zh-CN'?'media/manifest':'media-manifest')),selected==='zh-CN'?Promise.resolve({}):json(prefix+'ui.json')]);
       if(token!==localeRequest)return;

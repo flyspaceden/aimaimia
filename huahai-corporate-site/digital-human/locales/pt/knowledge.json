@@ -8,7 +8,7 @@
     "type": "Rinoceronte cartoon estilizado de quatro patas, com oito expressões e posturas distintas, em estilo 3D com animação 2D"
   },
   "intro": "Olá, sou a Xiaoxi, a apresentadora digital da Huahai AgriTech. A seguir, apresentarei a Huahai AgriTech sob seis aspectos: estratégia corporativa, conceito de desenvolvimento, rota tecnológica, produto Aimaimai, cadeia completa de produção e comercialização com IA, e ecossistema agrícola de bem-estar.",
-  "outro": "Da produção agrícola à mesa familiar, da coleta de dados aos serviços inteligentes: a Huahai AgriTech busca aproximar a tecnologia do setor, tornar a qualidade mais visível e facilitar a colaboração entre oferta e demanda. Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar. Agradecemos sua atenção e convidamos você a explorar juntos o futuro da agricultura com IA com a Huahai AgriTech.",
+  "outro": "Da produção agrícola à mesa familiar, da coleta de dados aos serviços inteligentes: a Huahai AgriTech busca aproximar a tecnologia do setor, tornar a qualidade mais visível e facilitar a colaboração entre oferta e demanda. Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança dos alimentos. Agradecemos sua atenção e convidamos você a explorar juntos o futuro da agricultura com IA com a Huahai AgriTech.",
   "sources": [
     {
       "id": "about",
@@ -104,7 +104,7 @@
     {
       "id": "values",
       "label": "Princípios da empresa",
-      "title": "Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança alimentar",
+      "title": "Avançar a agricultura com tecnologia, habilitar com IA, priorizar a segurança dos alimentos",
       "description": "Resolver com tecnologia problemas específicos da agricultura, garantir que as informações sobre qualidade possam ser verificadas e assegurar que o serviço se concretize em cada transação.",
       "visual": "values",
       "stage": "Princípios públicos da empresa",
@@ -115,17 +115,17 @@
       "points": [
         "Avançar a agricultura com tecnologia: atender problemas reais de produção",
         "Impulsionado por IA: colaboração entre dados e experiência especializada",
-        "Priorizar a segurança alimentar: dar ênfase ao registro na origem e ao longo do processo"
+        "Priorizar a segurança dos alimentos: dar ênfase ao registro na origem e ao longo do processo"
       ],
       "narration": [
-        "A premissa central da Huahai AgriTech é avançar a agricultura com tecnologia, capacitar com IA e priorizar a segurança alimentar.",
+        "A premissa central da Huahai AgriTech é avançar a agricultura com tecnologia, capacitar com IA e priorizar a segurança dos alimentos.",
         "Avançar a agricultura com tecnologia significa que a tecnologia deve responder a problemas reais enfrentados no campo.",
         "Por exemplo: os dados ambientais podem ser visualizados em tempo hábil? Anomalias podem ser detectadas mais precocemente? Os registros de produção podem ser facilmente armazenados e consultados?",
         "Para avaliar o valor técnico, deve-se observar os resultados em cenários reais, não apenas a quantidade de funcionalidades do sistema.",
         "Impulsionado por IA significa fazer com que dados, modelos e experiência especializada trabalhem em conjunto.",
         "A IA pode ajudar a compreender informações, organizar evidências e gerar sugestões, além de permitir que o consumidor expresse suas necessidades de seleção de forma mais conveniente.",
         "Nas operações produtivas, as recomendações de IA ainda devem ser avaliadas considerando a qualidade dos dados, a experiência agronômica e as condições dos equipamentos, e precisam de confirmação humana.",
-        "‘Segurança alimentar em primeiro lugar’ implica valorizar a origem, o processo produtivo, as informações de análise laboratorial, os registros logísticos e os mecanismos de rastreabilidade e atendimento após eventual ocorrência de problemas.",
+        "‘Segurança dos alimentos em primeiro lugar’ implica valorizar a origem, o processo produtivo, as informações de testes, os registros logísticos e os mecanismos de rastreabilidade e atendimento após eventual ocorrência de problemas.",
         "Registros digitais podem auxiliar na verificação dos processos, mas a integridade dos registros não implica automaticamente conformidade de qualidade.",
         "As conclusões de ensaios devem corresponder a lotes específicos e a relatórios válidos; a divulgação de produtos também deve estar alinhada com evidências reais.",
         "Para o consumidor, esses princípios devem se traduzir em informações de produtos mais claras, processos transacionais mais transparentes e experiências de serviço mais confiáveis.",
@@ -256,7 +256,7 @@
         "A IA pode auxiliar na interpretação de informações já existentes e na organização de critérios de seleção, tornando mais fácil a compreensão de dados técnicos complexos sobre produtos.",
         "No entanto, a descrição de alimentos não substitui diagnóstico médico, e alimentos comuns não podem ser apresentados como capazes de tratar doenças.",
         "Diante de necessidades específicas de saúde, a seleção de produtos ainda deve considerar cuidadosamente as informações constantes dos rótulos e orientações profissionais — não se deve tomar respostas de IA como substitutas de planos individuais de tratamento.",
-        "Esse ecossistema também exige a participação conjunta de bases agrícolas, empresas de alimentos, instituições de pesquisa, serviços de análise laboratorial e parceiros logísticos.",
+        "Esse ecossistema também exige a participação conjunta de bases agrícolas, empresas de alimentos, instituições de pesquisa, serviços de testes e parceiros logísticos.",
         "A Huahai AgriTech busca, por meio da tecnologia e da colaboração setorial, estabelecer conexões mais claras entre produção na origem, pesquisa e desenvolvimento de produtos, informações confiáveis e consumo familiar.",
         "Trata-se de uma rota ecológica que exige construção contínua e validação constante; projetos e capacidades de produto específicos devem ser avaliados com base em qualificações reais, documentação técnica e evidências operacionais concretas."
       ]

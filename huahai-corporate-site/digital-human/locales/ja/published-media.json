@@ -1,68 +1,68 @@
 {
   "locale": "ja",
-  "prefix": "huahai-corporate/digital-human/20261011-ja-5971e0912dad/",
+  "prefix": "huahai-corporate/digital-human/20261011-ja-cb25ae06d541/",
   "files": [
     {
       "id": "strategy",
-      "bytes": 2844717,
-      "sha256": "d5107d4efd3308a74a7cf97198a80e999bf99d2d07c2921be9d4e896f3067992",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/ja-strategy.mp3",
+      "bytes": 2885805,
+      "sha256": "6f65fbf9c4f89d2641c2d82a6b523907ce32d04cf7beb7f08b4b486772fa2b1d",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/ja-strategy.mp3",
       "name": "ja-strategy.mp3",
       "type": "audio/mpeg"
     },
     {
       "id": "values",
-      "bytes": 2140077,
-      "sha256": "68c321d343a396d557284ec5d6ab117395d0568a1cf1a4202991dd4626dd0836",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/ja-values.mp3",
+      "bytes": 2120877,
+      "sha256": "55cdd333f6268f89a76c246ec2fdebbdea1e2acd0816c1649a61a3d7201aca16",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/ja-values.mp3",
       "name": "ja-values.mp3",
       "type": "audio/mpeg"
     },
     {
       "id": "technology",
-      "bytes": 2402733,
-      "sha256": "82b691174928840b6f9759b700535252e016094c272a025b69f630b7b1ebf0a4",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/ja-technology.mp3",
+      "bytes": 2346285,
+      "sha256": "e52b205ca0a33403acdbb5233325c899e65b250543886e9ad68c7fb823b6896d",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/ja-technology.mp3",
       "name": "ja-technology.mp3",
       "type": "audio/mpeg"
     },
     {
       "id": "product",
-      "bytes": 2333613,
-      "sha256": "5d2aea20f7e19f2b56761c4820d9fd26e2d43fed5d884e972f33ede99d52e4e0",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/ja-product.mp3",
+      "bytes": 2395053,
+      "sha256": "31e94a8236755c1b39964443cee20182aa88b2236a1eb5c5aea7ad4990985df3",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/ja-product.mp3",
       "name": "ja-product.mp3",
       "type": "audio/mpeg"
     },
     {
       "id": "chain",
-      "bytes": 2497197,
-      "sha256": "6a2a4ef9470c2f0f88c5b0695e9e8d5b326327e6d3709a5834ae4cf0161c5ad5",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/ja-chain.mp3",
+      "bytes": 2519085,
+      "sha256": "cdb2631a17551c15233c1bfbe101d46d986b1995b200f975975b0c44082fe51c",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/ja-chain.mp3",
       "name": "ja-chain.mp3",
       "type": "audio/mpeg"
     },
     {
       "id": "health",
-      "bytes": 3007533,
-      "sha256": "f1b44f91a0b78406d7032628768d3a22c7913e4753949619c1d56bd247c55fb4",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/ja-health.mp3",
+      "bytes": 2900013,
+      "sha256": "94ab218af7b6ade4fac43ea6aab58f28388451d63c1e8798c3e779367954d810",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/ja-health.mp3",
       "name": "ja-health.mp3",
       "type": "audio/mpeg"
     },
     {
       "id": "film",
-      "bytes": 322431138,
-      "sha256": "4374cb2346cc2bd47620b5dabc752e5791702572bc8cc07f2ff391ab517b206b",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/huahai-brand-film-ja.mp4",
+      "bytes": 309028812,
+      "sha256": "0dca876af95be1b162258a1ed467fe0ce1e837675a5b1e31771c4814b0d85fde",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/huahai-brand-film-ja.mp4",
       "name": "huahai-brand-film-ja.mp4",
       "type": "video/mp4"
     },
     {
       "id": "preview",
-      "bytes": 128332898,
-      "sha256": "f85d18afbfd37baec249efa2a779e4a1950f907b1eddaea00551e5401b37b2c3",
-      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-5971e0912dad/huahai-brand-film-ja-preview.mp4",
+      "bytes": 122975240,
+      "sha256": "7cb8226dcce870010da29ac7f7d7c92d93a653306ab2b981422979d902b03a92",
+      "url": "https://huahai-aimaimai.oss-cn-hangzhou.aliyuncs.com/huahai-corporate/digital-human/20261011-ja-cb25ae06d541/huahai-brand-film-ja-preview.mp4",
       "name": "huahai-brand-film-ja-preview.mp4",
       "type": "video/mp4"
     }

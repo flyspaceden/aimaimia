@@ -8,7 +8,7 @@
     "type": "Rinoceronte caricaturesco estilizado de cuatro patas, con ocho expresiones y posturas distintas, en estilo 3D impulsado por animación bidimensional"
   },
   "intro": "Hola, soy Xiaoxi, el asistente digital explicativo de Huahai AgriTech. A continuación, lo guiaré a través de seis aspectos: estrategia corporativa, filosofía de desarrollo, ruta tecnológica, producto Aimaimai, cadena completa de producción y comercialización impulsada por IA, y ecosistema agrícola de bienestar integral.",
-  "outro": "Desde la producción agrícola hasta la mesa familiar, y desde la recolección de datos hasta los servicios inteligentes, Huahai AgriTech busca acercar la tecnología al sector, hacer más visible la calidad y facilitar la colaboración entre oferta y demanda. Avanzar la agricultura con tecnología, habilitarla con IA, priorizar la seguridad alimentaria. Gracias por su atención; le invitamos a explorar junto con Huahai AgriTech el futuro de la agricultura impulsada por IA.",
+  "outro": "Desde la producción agrícola hasta la mesa familiar, y desde la recolección de datos hasta los servicios inteligentes, Huahai AgriTech busca acercar la tecnología al sector, hacer más visible la calidad y facilitar la colaboración entre oferta y demanda. Avanzar la agricultura con tecnología, habilitarla con IA, priorizar la inocuidad de los alimentos. Gracias por su atención; le invitamos a explorar junto con Huahai AgriTech el futuro de la agricultura impulsada por IA.",
   "sources": [
     {
       "id": "about",
@@ -104,7 +104,7 @@
     {
       "id": "values",
       "label": "Filosofía corporativa",
-      "title": "Avanzar la agricultura con tecnología, habilitar con IA, priorizar la seguridad alimentaria",
+      "title": "Avanzar la agricultura con tecnología, habilitar con IA, priorizar la inocuidad de los alimentos",
       "description": "Resolver con tecnología problemas concretos de la agricultura, garantizar que la información de calidad sea verificable y asegurar que el servicio se concrete en cada transacción.",
       "visual": "values",
       "stage": "Principios públicos de la empresa",
@@ -115,17 +115,17 @@
       "points": [
         "Avanzar la agricultura con tecnología: brindar servicio a problemas reales de producción",
         "Potenciación con IA: colaboración entre datos y experiencia especializada",
-        "Priorizamos la seguridad alimentaria: damos importancia al registro del origen y del proceso"
+        "Priorizamos la inocuidad de los alimentos: damos importancia al registro del origen y del proceso"
       ],
       "narration": [
-        "La filosofía central de Huahai AgriTech es avanzar la agricultura con tecnología, habilitarla con IA y priorizar la seguridad alimentaria.",
+        "La filosofía central de Huahai AgriTech es avanzar la agricultura con tecnología, habilitarla con IA y priorizar la inocuidad de los alimentos.",
         "Avanzar la agricultura con tecnología implica que la tecnología responda a los problemas reales del campo agrícola.",
         "Por ejemplo: ¿los datos ambientales pueden visualizarse oportunamente?, ¿pueden detectarse antes las anomalías?, ¿pueden guardarse y consultarse fácilmente los registros productivos?",
         "Para evaluar el valor técnico, debe considerarse el resultado en escenarios reales, no solo la cantidad de funciones del sistema.",
         "Potenciación con IA implica la colaboración coordinada entre datos, modelos y experiencia especializada.",
         "La IA puede ayudar a comprender la información, organizar las evidencias y generar recomendaciones; también permite a los consumidores expresar sus necesidades de selección de forma más sencilla.",
         "En las operaciones productivas, las recomendaciones de IA deben evaluarse teniendo en cuenta la calidad de los datos, la experiencia agronómica y las condiciones de los equipos, y contar con confirmación humana.",
-        "‘La seguridad alimentaria primero’ implica valorar el origen, el proceso productivo, la información de análisis, los registros de comercialización y la trazabilidad y el servicio posteriores a cualquier incidencia.",
+        "‘La inocuidad de los alimentos primero’ implica valorar el origen, el proceso productivo, la información de análisis, los registros de comercialización y la trazabilidad y el servicio posteriores a cualquier incidencia.",
         "Los registros digitales pueden ayudar a verificar los procesos, pero la integridad del registro no implica automáticamente que la calidad sea conforme.",
         "Las conclusiones de los análisis deben corresponder a lotes específicos y a informes válidos; además, la promoción de los productos debe coincidir con evidencia real.",
         "Para los consumidores, estos principios deben reflejarse en información de productos más clara, procesos transaccionales más transparentes y experiencias de servicio más confiables.",
