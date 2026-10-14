@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>鱼塘订阅经济学模型 | 华海农科</title><link rel="icon" href="/assets/logo.jpg"><link rel="stylesheet" href="/assets/style.css"><style>
+.economics-page { --foreground:var(--color-text);--destructive:#b42318;background:var(--color-bg); }
+.economics-header { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0;border-bottom:1px solid var(--color-border-strong); }
+.economics-brand { display:flex;align-items:center;gap:12px;font-weight:600; }
+.economics-brand img { width:44px;height:44px;border-radius:8px; }
+.economics-main { max-width:1000px;margin:36px auto 60px; }
+.economics-main h1 { font-size:clamp(26px,4vw,38px);margin-bottom:12px; }
+#pond-subscription-economics > * + * { margin-top:20px; }
+#pond-subscription-economics .viz-controls { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 32px; }
+#pond-subscription-economics .form-label { display:block;color:var(--color-text);font-weight:500; }
+#pond-subscription-economics output { float:right;font-variant-numeric:tabular-nums;font-weight:400; }
+#pond-subscription-economics input[type=range] { display:block;width:100%;margin:14px 0 8px;accent-color:var(--color-primary); }
+#pond-subscription-economics .form-control { width:100%;padding:10px;margin-top:8px;border:1px solid var(--color-border-strong);border-radius:6px;font:inherit;background:white;color:var(--color-text); }
+#pond-subscription-economics .viz-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px; }
+#pond-subscription-economics .viz-stat { padding:20px;background:white;border:1px solid var(--color-border-strong);border-radius:10px; }
+#pond-subscription-economics .viz-stat-value { font-size:28px;font-weight:600;color:var(--color-primary-dark);margin:8px 0; }
+#pond-subscription-economics .text-small { font-size:13px;color:var(--color-text-muted); }
+#pond-subscription-economics .text-destructive { color:#b42318; }
+#pond-subscription-economics .table-responsive { overflow-x:auto; }
+#pond-subscription-economics .table { width:100%;border-collapse:collapse;font-size:14px; }
+#pond-subscription-economics .table th,#pond-subscription-economics .table td { padding:12px 8px;border-bottom:1px solid var(--color-border-strong);vertical-align:top; }
+#pond-subscription-economics caption { text-align:left;padding-bottom:8px; }
+#pond-subscription-economics .text-end { text-align:right; }
+#pond-subscription-economics .tabular-nums { font-variant-numeric:tabular-nums; }
+#pond-subscription-economics [hidden] { display:none!important; }
+#pond-subscription-economics summary { font-weight:600;padding:12px 0;cursor:pointer; }
+.economics-notes { margin-top:32px;border-top:1px solid var(--color-border-strong);padding-top:24px;font-size:14px; }
+.economics-notes h2 { font-size:20px;margin-bottom:12px; }
+@media(max-width:600px) { .economics-main { margin-top:24px; } #pond-subscription-economics .viz-controls,#pond-subscription-economics .viz-grid { grid-template-columns:1fr; } #pond-subscription-economics .table-responsive .table { min-width:530px; } .economics-header .btn { padding:8px 12px; } }
+</style></head><body class="economics-page"><div class="container"><header class="economics-header"><a class="economics-brand" href="/"><img src="/assets/logo.jpg" alt="华海农科"><span>华海农科</span></a><form action="/jjxmx/logout" method="post"><button class="btn btn-secondary" type="submit">退出</button></form></header><main class="economics-main"><h1>鱼塘订阅经济学模型</h1><p>调整单塘参数，比较养殖户的节料收益、订阅费用和平台回本门槛。</p><div id="pond-subscription-economics">
+  
+  <div class="text-small">单塘 · 每周期出鱼 4,500 斤/亩 · 建议报价，未计税费</div>
+  <div class="viz-controls">
+    <label class="form-label" for="pond-area">面积 <output id="pond-area-label">20 亩</output><input class="form-range" id="pond-area" type="range" min="2" max="40" step="1" value="20"></label>
+    <label class="form-label" for="pond-cycle">养殖周期 <output id="pond-cycle-label">8 个月</output><input class="form-range" id="pond-cycle" type="range" min="4" max="12" step="1" value="8"></label>
+    <label class="form-label" for="pond-price">塘口价 <output id="pond-price-label">15 元/斤</output><input class="form-range" id="pond-price" type="range" min="10" max="20" step="0.5" value="15"></label>
+    <label class="form-label" for="pond-feed">饲料采购价 <output id="pond-feed-label">9,000 元/吨</output><input class="form-range" id="pond-feed" type="range" min="5000" max="13000" step="500" value="9000"></label>
+    <label class="form-label" for="pond-fcr">原料肉比 <output id="pond-fcr-label">1.55</output><input class="form-range" id="pond-fcr" type="range" min="1.3" max="1.8" step="0.01" value="1.55"></label>
+    <label class="form-label" for="pond-delta">假设料肉比下降 <output id="pond-delta-label">0.10 → 1.45</output><input class="form-range" id="pond-delta" type="range" min="0" max="0.25" step="0.01" value="0.10"></label>
+  </div>
+  <div id="pond-error" class="text-destructive" role="alert" hidden></div>
+  <div class="viz-grid" aria-live="polite" data-results>
+    <div class="card viz-stat"><div>建议月费</div><div class="viz-stat-value tabular-nums" id="pond-monthly">2,170 元</div><div class="text-small" id="pond-fee-detail">8 个月：17,360 元</div></div>
+    <div class="card viz-stat"><div>节料增益扣订阅后</div><div class="viz-stat-value tabular-nums" id="pond-net">23,140 元</div><div class="text-small" id="pond-saving-detail">节料收益：40,500 元</div></div>
+    <div class="card viz-stat"><div>节料收益 ÷ 订阅费</div><div class="viz-stat-value tabular-nums" id="pond-multiple">2.33 倍</div><div class="text-small" id="pond-roi">增量 ROI：133.3%</div></div>
+  </div>
+  <div id="pond-farmer-summary" class="text-small" aria-live="polite" data-results></div>
+  <div id="pond-loss" class="text-destructive" role="status" data-results></div>
+  <div class="table-responsive" data-results>
+    <table class="table table-sm tabular-nums" aria-label="相同养殖周期和饲料价格下的面积梯度">
+      <caption class="text-small">目标料肉比限定在 1.3–1.8；超出范围的门槛单独标记。</caption>
+      <thead><tr><th scope="col">面积</th><th scope="col" class="text-end">月费/元</th><th scope="col" class="text-end" id="pond-cycle-heading">8 月费用/元</th><th scope="col" class="text-end">回本所需<br>料肉比下降</th><th scope="col" class="text-end">收益达 2 倍费用<br>所需下降</th></tr></thead>
+      <tbody id="pond-tiers"></tbody>
+    </table>
+  </div>
+  <details>
+    <summary class="cursor-interaction">平台成本与周期口径</summary>
+    <div class="viz-controls">
+      <label class="form-label" for="pond-hardware">设备＋安装（元/塘）<input class="form-control" id="pond-hardware" type="number" min="13000" max="18000" step="500" value="15500"></label>
+      <label class="form-label" for="pond-service">维护＋通信（元/塘/月）<input class="form-control" id="pond-service" type="number" min="300" max="500" step="25" value="400"></label>
+      <label class="form-label" for="pond-life">设备经济寿命（假设/月）<input class="form-control" id="pond-life" type="number" min="12" max="60" step="1" value="36"></label>
+      <label class="form-label" for="pond-idle">本周期分摊空塘月数<input class="form-control" id="pond-idle" type="number" min="0" max="12" step="1" value="0"></label>
+      <label class="form-label" for="pond-stock">入塘鱼重量（假设/斤/亩）<input class="form-control" id="pond-stock" type="number" min="0" max="4499" step="1" value="0"></label>
+    </div>
+    <table class="table table-sm tabular-nums" aria-label="当前鱼塘的平台成本测算" data-results><tbody>
+      <tr><th scope="row">设备摊销＋维护/月</th><td class="text-end" id="pond-direct"></td></tr>
+      <tr><th scope="row">扣设备摊销及维护后的毛利率</th><td class="text-end" id="pond-margin"></td></tr>
+      <tr><th scope="row">单次设备投入静态回收期</th><td class="text-end" id="pond-payback"></td></tr>
+      <tr><th scope="row">50% 毛利对应最低月费</th><td class="text-end" id="pond-floor"></td></tr>
+      <tr><th scope="row">24 月扣设备、期内替换和维护后的现金余额（不计残值）</th><td class="text-end" id="pond-term"></td></tr>
+    </tbody></table>
+    <div class="text-small">平台毛利未扣获客、研发、融资及税费；探头更换若未含在维护费内，须另加。</div>
+  </details>
+</div>
+<section class="economics-notes"><h2>测算口径</h2><p>建议月费：每塘 1,290 元，前 10 亩每亩 49 元，超过 10 至 20 亩的部分每亩 39 元，超过 20 至 40 亩的部分每亩 29 元。面积费用按超额部分累进。</p><p>每周期出鱼 4,500 斤/亩；1 吨饲料为 2,000 斤。节料收益按净增重、料肉比改善与饲料价格计算，不叠加未经验证的增产、减损或人工节省。</p><p>设备寿命暂按 36 个月，完整硬件套餐暂按 24 个月服务合约测算；空塘期间仍驻留设备的费用需要分摊。目标料肉比仅在 1.3–1.8 内测算，不代表生物学下限。以上是报价草案与效果情景，尚未验证实际节料效果；苗种、塘租、电费、人工及其他养殖成本未包含。</p></section><script data-economics>
+(() => {
+  const root = document.getElementById('pond-subscription-economics');
+  const ids = {area:'pond-area',cycle:'pond-cycle',price:'pond-price',feed:'pond-feed',fcr:'pond-fcr',delta:'pond-delta',hardware:'pond-hardware',service:'pond-service',life:'pond-life',idle:'pond-idle',stock:'pond-stock'};
+  const defaults = {area:23,cycle:10,price:15,feed:9000,fcr:1.56,delta:0.1,hardware:15500,service:400,life:36,idle:0,stock:0};
+  const el = id => root.querySelector('#' + id);
+  const format = (x, digits=0) => x.toLocaleString('zh-CN',{minimumFractionDigits:digits,maximumFractionDigits:digits});
+  const fee = a => 1290 + 49*Math.min(a,10) + 39*Math.min(Math.max(a-10,0),10) + 29*Math.max(a-20,0);
+  function calculate(s) {
+    const months = s.cycle+s.idle;
+    const monthly = fee(s.area);
+    const total = monthly*months;
+    const gain = s.area*(4500-s.stock);
+    const feedPrice = s.feed/2000;
+    const revenue = s.area*4500*s.price;
+    const feedCost = gain*s.fcr*feedPrice;
+    const saving = gain*s.delta*feedPrice;
+    const direct = s.service+s.hardware/s.life;
+    return {months,monthly,total,gain,feedPrice,revenue,feedCost,saving,net:saving-total,multiple:saving/total,direct,margin:(monthly-direct)/monthly,payback:s.hardware/(monthly-s.service),floor:direct/0.5,term:24*(monthly-s.service)-s.hardware*Math.ceil(24/s.life)};
+  }
+  // shortcut: 暂不估计死亡鱼消耗与增产收益，有可核对的批次记录后再扩展料肉比口径。
+  function read() { return Object.fromEntries(Object.entries(ids).map(([key,id])=>[key,Number(el(id).value)])); }
+  function validate(s) {
+    return Object.entries(ids).every(([key,id])=>Number.isFinite(s[key])&&el(id).value!==''&&el(id).checkValidity());
+  }
+  function update() {
+    const s=read();
+    const maxDelta=Math.round((s.fcr-1.3)*100)/100;
+    el('pond-delta').max=String(Math.max(0,maxDelta));
+    if(s.delta>maxDelta) {s.delta=Math.max(0,maxDelta);el('pond-delta').value=String(s.delta);}
+    const valid=validate(s);
+    root.querySelectorAll('[data-results]').forEach(node=>node.hidden=!valid);
+    if(!valid) {delete root.dataset.results;el('pond-error').hidden=false;el('pond-error').textContent='请填写各项标注范围内的数值，结果已暂停显示。';return;}
+    el('pond-error').hidden=true;
+    const m=calculate(s);
+    el('pond-area-label').textContent=format(s.area)+' 亩';
+    el('pond-cycle-label').textContent=format(s.cycle)+' 个月';
+    el('pond-price-label').textContent=format(s.price,1)+' 元/斤';
+    el('pond-feed-label').textContent=format(s.feed)+' 元/吨';
+    el('pond-fcr-label').textContent=format(s.fcr,2);
+    el('pond-delta-label').textContent=format(s.delta,2)+' → '+format(s.fcr-s.delta,2);
+    el('pond-monthly').textContent=format(m.monthly)+' 元';
+    el('pond-fee-detail').textContent=format(m.months)+' 个计费月：'+format(m.total)+' 元';
+    el('pond-net').textContent=format(m.net)+' 元';
+    el('pond-saving-detail').textContent='节料收益：'+format(m.saving)+' 元';
+    el('pond-multiple').textContent=format(m.multiple,2)+' 倍';
+    el('pond-roi').textContent='增量 ROI：'+format((m.multiple-1)*100,1)+'%';
+    el('pond-farmer-summary').textContent='周期销售额 '+format(m.revenue)+' 元 · 销售额减饲料费 '+format(m.revenue-m.feedCost)+' 元（未扣其他养殖成本） · 订阅占销售额 '+format(m.total/m.revenue*100,2)+'%';
+    el('pond-loss').textContent=m.feedCost>=m.revenue?'本组合仅饲料费已达到或超过销售额。':m.multiple<1?'本节料情景尚未覆盖订阅费。':m.multiple<2?'本节料情景可以回本，尚未达到 2 倍费用目标。':'';
+    el('pond-cycle-heading').textContent=format(m.months)+' 月费用/元';
+    el('pond-tiers').innerHTML=[2,5,10,20,40].map(a=>{
+      const t=calculate({...s,area:a});
+      const d=t.total/(t.gain*t.feedPrice);
+      const threshold=x=>format(x,3)+(x>maxDelta+0.000001?'（超出范围）':'');
+      return '<tr><th scope="row">'+a+' 亩'+(s.area===a?'（当前）':'')+'</th><td class="text-end">'+format(t.monthly)+'</td><td class="text-end">'+format(t.total)+'</td><td class="text-end">'+threshold(d)+'</td><td class="text-end">'+threshold(d*2)+'</td></tr>';
+    }).join('');
+    el('pond-direct').textContent=format(m.direct,2)+' 元';
+    el('pond-margin').textContent=format(m.margin*100,1)+'%';
+    el('pond-payback').textContent=format(m.payback,1)+' 个实际付费月'+(m.payback>s.life?'（超过设备寿命）':'');
+    el('pond-floor').textContent=format(m.floor,0)+' 元';
+    el('pond-term').textContent=format(m.term)+' 元';
+    root.dataset.results=JSON.stringify(m);
+  }
+  Object.entries(ids).forEach(([key,id])=>{el(id).value=String(defaults[key]);el(id).addEventListener('input',update);});
+  update();
+})();
+</script></main></div></body></html>

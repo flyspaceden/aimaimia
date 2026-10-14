@@ -1,5 +1,7 @@
 # 项目文档导航
 
+- `docs/features/huahai-pond-economics.md` — 官网 `/jjxmx` 密码访问、鱼塘订阅面积梯度、客户/平台回本口径及定向部署回退；不替代商城或 IoT 业务设计。
+
 - `docs/features/huahai-health-library.md` — 官网大健康知识库、三个中文主题页、目录来源校正、每日三餐、统一导航/语言/响应式与独立发布；覆盖农事文档的旧首页条和弹窗交互，不替代 IoT 或商城规则。
 - `docs/features/huahai-farming-calendar.md` — 首页今日农事、北京时间农历/节气、季节农事与短故事、官网/大屏同版源码及独立发布门禁；仅覆盖集团官网公开内容。
 

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>访问经济学模型 | 华海农科</title>
+  <link rel="icon" href="/assets/logo.jpg">
+  <link rel="stylesheet" href="/assets/style.css">
+  <style>
+    body { background:var(--color-bg); }
+    main { max-width:440px;margin:12vh auto;padding:32px 24px;background:white;border:1px solid var(--color-border-strong);border-radius:16px; }
+    .brand { display:flex;align-items:center;gap:12px;margin-bottom:28px;font-weight:600; }
+    .brand img { width:44px;height:44px;border-radius:8px; }
+    h1 { font-size:28px;margin-bottom:12px; }
+    label { display:block;margin:24px 0 8px;font-weight:500; }
+    input { width:100%;padding:12px;border:1px solid var(--color-border-strong);border-radius:6px;font:inherit; }
+    button { width:100%;margin-top:18px; }
+    .error { color:#b42318;min-height:28px;margin-top:12px; }
+    @media(max-width:480px) { main { margin:8vh 16px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="brand" href="/"><img src="/assets/logo.jpg" alt="华海农科"><span>华海农科</span></a>
+    <h1>鱼塘订阅经济学模型</h1>
+    <p>输入访问密码，进入测算页面。</p>
+    <form action="/jjxmx/login" method="post">
+      <label for="password">访问密码</label>
+      <input id="password" name="password" type="password" inputmode="numeric" minlength="6" maxlength="6" required autocomplete="current-password" autofocus>
+      <button class="btn btn-primary" type="submit">进入测算</button>
+      <div class="error" role="alert">{{ERROR}}</div>
+    </form>
+  </main>
+</body>
+</html>
