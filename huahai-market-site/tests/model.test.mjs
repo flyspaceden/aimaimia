@@ -1,32 +1,72 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterProducts, parseRoute, routeHash, escapeHtml, demands } from '../dist/assets/model.js';
+import { parseRoute, routeHash, escapeHtml } from '../dist/assets/model.js';
+import { products, batches, findBatch, findProduct, findPond, findBase, waterSeries, complianceRate, metricRange, totalFeedKg, traceCompleteness, aiAnswers, liveReading, inPond } from '../dist/assets/data.js';
 
-test('搜索将品类和产地同时作为条件，缺货品类保持空态', () => {
-  assert.deepEqual(filterProducts('水产', '茂名').map(p => p.id), ['tilapia']);
-  assert.equal(filterProducts('果蔬', '茂名').length, 0);
-  assert.equal(filterProducts('畜禽', '').length, 0);
-  assert.equal(filterProducts('all', '  ' ).length, 3);
+test('路由解析：带 ID、未知路由、坏编码', () => {
+  assert.deepEqual([parseRoute('#trace/HH-YJ-2605-02').name, parseRoute('#trace/HH-YJ-2605-02').id], ['trace', 'HH-YJ-2605-02']);
+  assert.equal(parseRoute('#nope/123').name, 'home');
+  assert.equal(parseRoute('#nope/123').id, '');
+  assert.equal(parseRoute('#product/%E0%A4%A').id, '');
+  assert.equal(parseRoute('').name, 'home');
 });
-test('商品规格搜索接受全角字符，不修改原始商品内容', () => {
-  assert.equal(filterProducts('水产', '５００').length, 1);
+
+test('路由往返：商城筛选与工作台状态', () => {
+  const r = parseRoute(routeHash({ name: 'shop', category: '虾类', sort: 'price-asc', query: '对虾' }));
+  assert.deepEqual([r.name, r.category, r.sort, r.query], ['shop', '虾类', 'price-asc', '对虾']);
+  assert.equal(parseRoute('#shop?category=bad&sort=bad').category, 'all');
+  assert.equal(parseRoute(routeHash({ name: 'work', status: 'quoted' })).status, 'quoted');
 });
-test('分享地址完整恢复筛选和工作台状态', () => {
-  const route = { page: 'work', category: '水产', query: '茂名 & 罗非鱼', status: 'quoted' };
-  assert.deepEqual(parseRoute(routeHash(route)), route);
+
+test('每个商品都能找到批次、基地和塘', () => {
+  assert.equal(products.length, 6);
+  for (const p of products) {
+    const b = findBatch(p.batchCode);
+    assert.ok(b, p.id);
+    assert.equal(b.productId, p.id);
+    assert.ok(findBase(b.baseId));
+    assert.ok(findPond(b.pondId));
+    for (const node of b.lineage) assert.ok(findPond(node.pondId), node.pondId);
+  }
+  assert.equal(findBatch(' hh-yj-2605-02 ')?.code, 'HH-YJ-2605-02');
+  assert.equal(findBatch('HH-NOPE'), undefined);
+  assert.equal(findProduct(undefined), undefined);
+  for (const b of inPond) assert.ok(findPond(b.pondId));
 });
-test('未知或异常地址使用安全默认值并限制搜索长度', () => {
-  assert.deepEqual(parseRoute('#__proto__?category=invalid&status=paid'), { page: 'market', category: 'all', query: '', status: 'ongoing' });
-  assert.equal(parseRoute('#market?q=' + 'a'.repeat(300)).query.length, 100);
-  assert.doesNotThrow(() => parseRoute('#market?q=%E0%A4%A'));
+
+test('水质序列确定、长度等于养殖天数、预警日越线', () => {
+  const b = findBatch('HH-YJ-2605-02');
+  const a1 = waterSeries(b, 'do'), a2 = waterSeries(b, 'do');
+  assert.deepEqual(a1, a2);
+  assert.equal(a1[0].day, b.stockDate);
+  assert.equal(a1.at(-1).day, b.harvestDate);
+  assert.ok(a1.find(p => p.day === '2026-07-21').value < 5);
+  const rate = complianceRate(a1, metricRange('do', 'marine'));
+  assert.ok(rate > 95 && rate < 100);
+  assert.equal(complianceRate([], [0, 1]), 0);
 });
-test('文本转义保留用户文本含义，不把字符串作为 HTML 执行', () => {
-  assert.equal(escapeHtml('<img src="x" onerror=alert(1)> & \'quoted\''), '&lt;img src=&quot;x&quot; onerror=alert(1)&gt; &amp; &#39;quoted&#39;');
+
+test('汇总、完整度、AI 回答只引用档案事实', () => {
+  for (const b of batches) {
+    assert.equal(totalFeedKg(b), b.feeds.reduce((s, f) => s + f.kg, 0));
+    assert.ok(traceCompleteness(b) >= 80);
+    const answers = aiAnswers(b);
+    assert.ok(answers.length >= 5);
+    assert.ok(answers.some(x => x.a.includes(b.code)));
+  }
+  assert.ok(findBatch('HH-YJ-2605-02').lineage.length >= 2);
+  assert.deepEqual(liveReading('YJ-02', 5), liveReading('YJ-02', 5));
 });
-test('不同采购需求保留各自规格、目的地和采购数量', () => {
-  assert.match(demands[0].spec, /500/);
-  assert.equal(demands[0].destination, '广州');
-  assert.match(demands[1].name, /番茄/);
-  assert.equal(demands[1].destination, '深圳');
-  assert.equal(demands[1].quantity, '800 公斤');
+
+test('HTML 转义', () => {
+  assert.equal(escapeHtml(`<img src=x onerror="a">'&`), '&lt;img src=x onerror=&quot;a&quot;&gt;&#39;&amp;');
+});
+
+test('B 端周供货量不超过在塘存量，且预警日数值与预警记录一致', () => {
+  for (const p of products) assert.ok(p.b2b.weekly.reduce((s, v) => s + v, 0) <= p.b2b.inPondKg, p.id);
+  for (const b of batches) for (const a of b.alerts) {
+    const point = waterSeries(b, a.metric).find(x => x.day === a.date);
+    assert.ok(point, `${b.code} ${a.date}`);
+    assert.equal(point.value, Number(a.value.match(/\d+(\.\d+)?/)[0]));
+  }
 });

@@ -50,8 +50,12 @@ jobs:
   full-e2e:
     needs: scope
     if: needs.scope.outputs.mode == 'full'
-    runs-on: ubuntu-latest
+    # ubuntu-latest 已升级到 26.04，Playwright 1.59.1 不支持在其上安装 chromium；固定到已验证的 24.04。
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # 后端 nest --watch 编译在默认约 2GB 堆上限处 OOM（2026-11-25 run 45528708348）；公开仓库 runner 为 16GB 内存。
+      NODE_OPTIONS: --max-old-space-size=6144
 
     services:
       postgres:
