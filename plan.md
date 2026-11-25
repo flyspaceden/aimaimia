@@ -24,6 +24,15 @@
 - [x] PR #49已合入main；用户随后调整为知识库三专页，旧首页入口生产run已取消且未替换静态文件。新版本进度见2026-10-11知识库任务。
 
 
+## 2026-11-24 AI 农贸市场产销溯源演示版升级
+
+- [x] 用户确认：先用演示数据展示“物联网/确权小程序 → AI 农贸市场”的产销数据链，C 端与 B 端都做，只展示 IoT 已有的数据类型（用药/施肥/称重曲线暂不展示），UI 现代化、有科技感。[设计](docs/superpowers/specs/2026-11-24-huahai-market-trace-demo-design.md) · [计划](docs/superpowers/plans/2026-11-24-huahai-market-trace-demo.md)。
+- [x] 独立 worktree（分支 `claude/market-trace-demo-20261124`）重写 `huahai-market-site/`：首页、买好货、商品详情、批次溯源档案、产地基地、产地采购、交易工作台、购物车与演示下单、AI 溯源助手。
+- [x] 6 项单元测试与 8 组浏览器交互检查通过（375/768/1024/1440 无横向溢出，无控制台错误与外部请求）。
+- [ ] 用户本地预览确认视觉与内容。
+- [ ] 经用户授权后走 PR → main → `huahai-market` 发布目标上线 `market.huahainongke.com`。
+- [ ] 真实数据打通（IoT 批次/水质/检测 → 市场商品）与真实下单另行设计。
+
 ## 2026-10-09 华海农科 AI 农贸市场交易门户
 
 - [x] 用户确认绿色品牌、四页交易门户及主域名下独立入口方向；见 [网站设计与实施记录](docs/features/huahai-market-portal.md)。
