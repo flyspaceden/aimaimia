@@ -61,3 +61,12 @@ test('汇总、完整度、AI 回答只引用档案事实', () => {
 test('HTML 转义', () => {
   assert.equal(escapeHtml(`<img src=x onerror="a">'&`), '&lt;img src=x onerror=&quot;a&quot;&gt;&#39;&amp;');
 });
+
+test('B 端周供货量不超过在塘存量，且预警日数值与预警记录一致', () => {
+  for (const p of products) assert.ok(p.b2b.weekly.reduce((s, v) => s + v, 0) <= p.b2b.inPondKg, p.id);
+  for (const b of batches) for (const a of b.alerts) {
+    const point = waterSeries(b, a.metric).find(x => x.day === a.date);
+    assert.ok(point, `${b.code} ${a.date}`);
+    assert.equal(point.value, Number(a.value.match(/\d+(\.\d+)?/)[0]));
+  }
+});

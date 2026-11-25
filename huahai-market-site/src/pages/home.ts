@@ -1,4 +1,4 @@
-import { bases, batches, company, platformStats, products, pondsOfBase, findBatch } from '../data.js';
+import { aiAnswers, bases, batches, company, platformStats, products, pondsOfBase, findBatch } from '../data.js';
 import { fmt } from '../model.js';
 import { icon } from '../svg.js';
 import { esc, href, productCard } from '../ui.js';
@@ -6,6 +6,8 @@ import { esc, href, productCard } from '../ui.js';
 export function homePage(): string {
   const featured = products.slice(0, 4);
   const sample = findBatch('HH-YJ-2605-02')!;
+  const sampleLab = sample.labs.find(l => l.category.includes('渔药'))!;
+  const passed = sampleLab.items.filter(i => i.pass).length;
   const chain = [
     ['sensor', '物联网监测', '塘口探头 24 小时采集溶氧、水温、pH、氨氮'],
     ['user', '确权小程序', '养殖户登记放苗、投喂、转塘、起捕并拍照'],
@@ -57,8 +59,8 @@ export function homePage(): string {
       <p class="muted">${batches.length} 个已上市批次均可查看：来源链、养殖时间轴、饲料批号、水质曲线、检测报告、数据修订记录。</p>
       <ul class="ticks">
         <li>${icon('check', 'ic ic-xs')}标粗池 → 高位池 转塘全程留档</li>
-        <li>${icon('check', 'ic ic-xs')}8 个探头采集 ${fmt(sample.provenance.sensorSamples)} 条水质数据</li>
-        <li>${icon('check', 'ic ic-xs')}第三方检测 8 项全部合格</li>
+        <li>${icon('check', 'ic ic-xs')}${sample.sensors} 个探头采集 ${fmt(sample.provenance.sensorSamples)} 条水质数据</li>
+        <li>${icon('check', 'ic ic-xs')}第三方检测 ${passed}/${sampleLab.items.length} 项符合</li>
       </ul>
       <a class="btn btn-primary" href="${href('trace', sample.code)}">打开溯源档案 ${icon('arrow', 'ic ic-xs')}</a>
     </div>
@@ -66,7 +68,7 @@ export function homePage(): string {
       <div class="kicker">${icon('spark', 'ic ic-xs')} AI 溯源助手</div>
       <h2>想知道什么，直接问</h2>
       <div class="bubble bubble-q">这条金鲳鱼打过药吗？</div>
-      <div class="bubble bubble-a">粤西水产品质量检测中心对 8 个项目进行检测，禁用药物均为“未检出”，全部符合对照限值。报告号 YXJC-2610-0428。</div>
+      <div class="bubble bubble-a">${esc(aiAnswers(sample)[1]!.a)}</div>
       <button class="btn btn-ghost" data-action="assistant">${icon('chat')}打开 AI 助手</button>
     </div>
   </section>

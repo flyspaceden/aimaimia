@@ -39,7 +39,8 @@ export function routeHash(route: Pick<Route, 'name'> & Partial<Route>): string {
   }
   if (route.name === 'work' && route.status && route.status !== 'ongoing') params.set('status', route.status);
   const path = route.id ? `${route.name}/${encodeURIComponent(route.id)}` : route.name;
-  return '#' + path + (params.size ? '?' + params.toString() : '');
+  const qs = params.toString();
+  return '#' + path + (qs ? '?' + qs : '');
 }
 export function escapeHtml(value: string): string {
   const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };

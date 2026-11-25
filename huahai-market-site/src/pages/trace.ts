@@ -84,7 +84,7 @@ export function tracePage(code: string, metric: Metric = 'do'): string {
 
   <section class="section card" id="sec-water">
     <div class="sec-head"><div><div class="kicker">${icon('drop', 'ic ic-xs')} 水质环境</div><h2>养殖期水质曲线（日均值）</h2></div>${sourceBadge('sensor')}</div>
-    <div class="seg" role="tablist" aria-label="水质指标">${(Object.keys(metricInfo) as Metric[]).map(m => `<button role="tab" class="seg-i" data-metric="${m}" aria-selected="${m === metric}">${metricInfo[m].label}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="水质指标">${(Object.keys(metricInfo) as Metric[]).map(m => `<button class="seg-i" data-metric="${m}" aria-pressed="${m === metric}">${metricInfo[m].label}</button>`).join('')}</div>
     <div id="water-chart">${waterBlock(b, metric)}</div>
     <h3 class="h3">预警与处理</h3>
     ${b.alerts.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>日期</th><th>指标</th><th>级别</th><th>读数</th><th>处理</th><th>恢复用时</th></tr></thead><tbody>

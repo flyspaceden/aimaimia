@@ -163,9 +163,10 @@ export function demoCode(code: string): string {
 }
 /** 基地塘口分布示意图。 */
 export function pondMap(list: readonly Pond[], selected: string, readings: Record<string, Reading>): string {
+  const gid = `pm${++artSeq}`;
   return `<svg class="pondmap" viewBox="0 0 100 100" role="img" aria-label="塘口分布示意图，共 ${list.length} 口塘">
-    <defs><pattern id="pm-grid" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M5 0H0V5" fill="none" stroke="#22d3ee" stroke-opacity=".07" stroke-width=".3"/></pattern></defs>
-    <rect width="100" height="100" fill="url(#pm-grid)"/>
+    <defs><pattern id="${gid}" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M5 0H0V5" fill="none" stroke="#22d3ee" stroke-opacity=".07" stroke-width=".3"/></pattern></defs>
+    <rect width="100" height="100" fill="url(#${gid})"/>
     ${list.map(p => {
       const on = p.id === selected, r = readings[p.id];
       return `<g class="pm-pond pm-${p.status}${on ? ' pm-on' : ''}"><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="3"/>

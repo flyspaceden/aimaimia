@@ -157,7 +157,7 @@ img { max-width: 100%; }
 .seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--line); background: rgba(6, 18, 32, .6); flex-wrap: wrap; }
 .seg-i { min-height: 38px; padding: 6px 14px; border-radius: 9px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; }
 .seg-i:hover { color: var(--text); }
-.seg-i[aria-current="true"], .seg-i[aria-selected="true"] { background: rgba(34, 211, 238, .16); color: #a5f3fc; font-weight: 650; box-shadow: inset 0 0 0 1px rgba(34, 211, 238, .35); }
+.seg-i[aria-current="true"], .seg-i[aria-pressed="true"] { background: rgba(34, 211, 238, .16); color: #a5f3fc; font-weight: 650; box-shadow: inset 0 0 0 1px rgba(34, 211, 238, .35); }
 .select { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
 select, input[type=number], input[type=date], textarea, .form input { min-height: 44px; border-radius: 10px; border: 1px solid var(--line2); background: rgba(6, 18, 32, .8); color: var(--text); font: inherit; font-size: 15px; padding: 0 12px; color-scheme: dark; }
 textarea { padding: 10px 12px; min-height: 96px; resize: vertical; }

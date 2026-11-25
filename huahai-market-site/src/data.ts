@@ -54,12 +54,15 @@ export const ponds: readonly Pond[] = [
   { id: 'YJ-02', baseId: 'yj', name: '2号高位池', areaMu: 12, depthM: 2.4, kind: '高位池', species: '金鲳鱼', status: 'harvested', x: 34, y: 6, w: 30, h: 40 },
   { id: 'YJ-03', baseId: 'yj', name: '3号虾塘', areaMu: 10, depthM: 1.6, kind: '高位池', species: '南美白对虾', status: 'harvested', x: 68, y: 6, w: 28, h: 40 },
   { id: 'YJ-04', baseId: 'yj', name: '4号高位池', areaMu: 12, depthM: 2.4, kind: '高位池', species: '金鲳鱼', status: 'growing', x: 4, y: 52, w: 44, h: 42, currentBatch: 'HH-YJ-2608-04' },
+  { id: 'YJ-05', baseId: 'yj', name: '5号虾塘', areaMu: 10, depthM: 1.6, kind: '高位池', species: '南美白对虾', status: 'growing', x: 52, y: 52, w: 44, h: 42, currentBatch: 'HH-YJ-2609-05' },
   { id: 'MM-01', baseId: 'mm', name: '1号鱼塘', areaMu: 15, depthM: 2.2, kind: '土塘', species: '罗非鱼', status: 'harvested', x: 4, y: 6, w: 44, h: 40 },
   { id: 'MM-02', baseId: 'mm', name: '2号鱼塘', areaMu: 15, depthM: 2.2, kind: '土塘', species: '罗非鱼', status: 'growing', x: 52, y: 6, w: 44, h: 40, currentBatch: 'HH-MM-2604-01B' },
-  { id: 'MM-03', baseId: 'mm', name: '3号鲈鱼塘', areaMu: 18, depthM: 2.5, kind: '循环水池塘', species: '加州鲈', status: 'harvested', x: 4, y: 52, w: 92, h: 42 },
+  { id: 'MM-03', baseId: 'mm', name: '3号鲈鱼塘', areaMu: 18, depthM: 2.5, kind: '循环水池塘', species: '加州鲈', status: 'harvested', x: 4, y: 52, w: 44, h: 42 },
+  { id: 'MM-04', baseId: 'mm', name: '4号鲈鱼塘', areaMu: 18, depthM: 2.5, kind: '循环水池塘', species: '加州鲈', status: 'growing', x: 52, y: 52, w: 44, h: 42, currentBatch: 'HH-MM-2607-04' },
   { id: 'ZJ-01', baseId: 'zj', name: 'A1 工厂化车间', areaMu: 6, depthM: 1.5, kind: '工厂化循环水', species: '珍珠龙胆石斑', status: 'harvested', x: 4, y: 6, w: 40, h: 40 },
   { id: 'ZJ-02', baseId: 'zj', name: 'B2 海水塘', areaMu: 20, depthM: 2.6, kind: '海水土塘', species: '黄鳍鲷', status: 'harvested', x: 48, y: 6, w: 48, h: 40 },
-  { id: 'ZJ-03', baseId: 'zj', name: 'B3 海水塘', areaMu: 20, depthM: 2.6, kind: '海水土塘', species: '黄鳍鲷', status: 'growing', x: 4, y: 52, w: 92, h: 42, currentBatch: 'HH-ZJ-2607-03' },
+  { id: 'ZJ-03', baseId: 'zj', name: 'B3 海水塘', areaMu: 20, depthM: 2.6, kind: '海水土塘', species: '黄鳍鲷', status: 'growing', x: 4, y: 52, w: 44, h: 42, currentBatch: 'HH-ZJ-2607-03' },
+  { id: 'ZJ-04', baseId: 'zj', name: 'A2 工厂化车间', areaMu: 6, depthM: 1.5, kind: '工厂化循环水', species: '珍珠龙胆石斑', status: 'growing', x: 52, y: 52, w: 44, h: 42, currentBatch: 'HH-ZJ-2605-04' },
 ];
 
 const S = (n: number) => n.toLocaleString('zh-CN');
@@ -76,7 +79,7 @@ export const batches: readonly Batch[] = [
     events: [
       { date: '2026-05-08', kind: 'STOCK', title: '放苗入 1 号标粗池', detail: '48,000 尾，规格 3–4 cm，附检疫合格证', source: 'farmer' },
       { date: '2026-05-08', kind: 'PHOTO', title: '苗种到场拍照', detail: '苗袋编号与检疫证同框拍摄', source: 'farmer' },
-      { date: '2026-05-20', kind: 'FEED', title: '开口料转标粗料', detail: '饲料批号 HF-0D-260511，日投喂 4 次', source: 'farmer' },
+      { date: '2026-05-20', kind: 'FEED', title: '开口料转标粗料', detail: '饲料批号 HF-1D-260511，日投喂 4 次', source: 'farmer' },
       { date: '2026-06-12', kind: 'TRANSFER', title: '转塘至 2 号高位池', detail: '转出 44,600 尾，标粗成活率 92.9%', source: 'farmer' },
       { date: '2026-07-21', kind: 'ALERT', title: '凌晨溶氧偏低提醒', detail: '04:10 溶氧 4.6 mg/L，自动提醒后开启增氧，52 分钟恢复', source: 'sensor' },
       { date: '2026-08-15', kind: 'INSPECTION', title: '养殖用水送检', detail: '水样送第三方检测，结果见检测报告', source: 'lab' },
@@ -90,11 +93,11 @@ export const batches: readonly Batch[] = [
       { stage: '养成前期', product: '金鲳鱼膨化配合饲料 3#', brand: '海粤饲料（演示）', lot: 'HF-3P-260618', protein: '≥ 42%', kg: 13800, from: '2026-06-12', to: '2026-08-31' },
       { stage: '养成后期', product: '金鲳鱼膨化配合饲料 5#', brand: '海粤饲料（演示）', lot: 'HF-5P-260826', protein: '≥ 40%', kg: 19400, from: '2026-09-01', to: '2026-11-15' },
     ],
-    survival: 86.4, mortalityNote: '全程登记死亡 6,082 尾，其中台风后集中死亡 310 尾，均有巡塘照片',
+    survival: 86.4, mortalityNote: '全程登记死亡 6,528 尾，其中台风后集中死亡 310 尾，均有巡塘照片',
     harvest: { qtyKg: 22860, spec: '500–600 g/尾', method: '拉网起捕，冰水预冷后装箱' },
     alerts: [
       { date: '2026-07-21', metric: 'do', level: '提醒', value: '4.6 mg/L', action: '开启 2 台增氧机', recoveredIn: '52 分钟' },
-      { date: '2026-08-09', metric: 'temp', level: '提醒', value: '32.8 ℃', action: '加注新水，减料 30%', recoveredIn: '6 小时' },
+      { date: '2026-08-09', metric: 'temp', level: '提醒', value: '33.4 ℃', action: '加注新水，减料 30%', recoveredIn: '6 小时' },
     ],
     labs: [
       {
@@ -122,7 +125,7 @@ export const batches: readonly Batch[] = [
     ],
     photos: [
       { date: '2026-05-08', caption: '苗种到场与检疫证同框', scene: 'seed', source: 'farmer' },
-      { date: '2026-06-12', caption: '转塘前抽样量体长', scene: 'pond', source: 'farmer' },
+      { date: '2026-06-12', caption: '转塘前抽样观察', scene: 'pond', source: 'farmer' },
       { date: '2026-07-03', caption: '饲料入库批号标签', scene: 'feed', source: 'farmer' },
       { date: '2026-10-28', caption: '成鱼抽样封样', scene: 'lab', source: 'lab' },
       { date: '2026-11-18', caption: '拉网起捕现场', scene: 'harvest', source: 'farmer' },
@@ -145,7 +148,7 @@ export const batches: readonly Batch[] = [
     lineage: [{ pondId: 'YJ-03', from: '2026-07-16', to: '2026-11-12', stage: '一次放养养成', qty: '120 万尾放入', note: '高位池一次放苗到底，不转塘' }],
     events: [
       { date: '2026-07-16', kind: 'STOCK', title: '放苗入 3 号虾塘', detail: 'P10 虾苗 120 万尾，附检疫证', source: 'farmer' },
-      { date: '2026-08-02', kind: 'PHOTO', title: '虾苗生长抽查', detail: '网箱抽样拍照，平均体长约 4 cm', source: 'farmer' },
+      { date: '2026-08-02', kind: 'PHOTO', title: '虾苗生长抽查', detail: '网箱抽样观察并拍照', source: 'farmer' },
       { date: '2026-08-24', kind: 'ALERT', title: '氨氮升高提醒', detail: '氨氮 0.62 mg/L，加大换水后 1 天恢复', source: 'sensor' },
       { date: '2026-09-10', kind: 'FEED', title: '换用中期虾料', detail: '饲料批号 SR-2P-260905', source: 'farmer' },
       { date: '2026-10-30', kind: 'INSPECTION', title: '成虾抽样送检', detail: '送检渔药残留与重金属项目', source: 'lab' },
@@ -200,7 +203,7 @@ export const batches: readonly Batch[] = [
       { stage: '中期', product: '罗非鱼膨化饲料 2#', brand: '粤农饲料（演示）', lot: 'TF-2P-260512', protein: '≥ 30%', kg: 12800, from: '2026-05-18', to: '2026-08-20' },
       { stage: '后期', product: '罗非鱼膨化饲料 3#', brand: '粤农饲料（演示）', lot: 'TF-3P-260818', protein: '≥ 28%', kg: 14600, from: '2026-08-21', to: '2026-11-05' },
     ],
-    survival: 90.8, mortalityNote: '分塘后留塘部分死亡 2,870 尾，按日登记',
+    survival: 90.8, mortalityNote: '全程登记死亡 4,784 尾，其中分塘后留塘部分 2,870 尾，按日登记',
     harvest: { qtyKg: 21350, spec: '600–800 g/尾', method: '拉网起捕，活鱼车运输' },
     alerts: [{ date: '2026-08-11', metric: 'temp', level: '预警', value: '34.2 ℃', action: '加注深井水，减料 30%', recoveredIn: '5 小时' }],
     labs: [{
@@ -231,7 +234,7 @@ export const batches: readonly Batch[] = [
     events: [
       { date: '2026-03-22', kind: 'STOCK', title: '放苗入 3 号鲈鱼塘', detail: '加州鲈 36,000 尾，已完成配合饲料驯化', source: 'farmer' },
       { date: '2026-04-15', kind: 'SUPPLEMENT', title: '补苗', detail: '补放 1,500 尾同批次苗种', source: 'farmer' },
-      { date: '2026-06-28', kind: 'ALERT', title: '暴雨后 pH 下降提醒', detail: 'pH 6.4，泼洒生石灰调节后恢复', source: 'sensor' },
+      { date: '2026-06-28', kind: 'ALERT', title: '暴雨后 pH 下降提醒', detail: 'pH 6.4，加注新水调节后恢复', source: 'sensor' },
       { date: '2026-09-18', kind: 'INSPECTION', title: '养殖用水送检', detail: '循环水系统出水检测', source: 'lab' },
       { date: '2026-11-03', kind: 'INSPECTION', title: '成鱼抽样送检', detail: '渔药残留项目', source: 'lab' },
       { date: '2026-11-15', kind: 'HARVEST', title: '起捕上市', detail: '起捕 15,620 kg，规格 450–550 g/尾', source: 'farmer' },
@@ -241,9 +244,9 @@ export const batches: readonly Batch[] = [
       { stage: '中期', product: '加州鲈配合饲料 4#', brand: '粤农饲料（演示）', lot: 'BF-4P-260601', protein: '≥ 46%', kg: 9600, from: '2026-06-01', to: '2026-08-31' },
       { stage: '后期', product: '加州鲈配合饲料 6#', brand: '粤农饲料（演示）', lot: 'BF-6P-260902', protein: '≥ 45%', kg: 8700, from: '2026-09-01', to: '2026-11-12' },
     ],
-    survival: 88.1, mortalityNote: '全程按日登记死亡，累计 4,470 尾',
+    survival: 88.1, mortalityNote: '全程按日登记死亡，累计 4,462 尾（含补苗）',
     harvest: { qtyKg: 15620, spec: '450–550 g/尾', method: '拉网起捕，充氧活鱼运输' },
-    alerts: [{ date: '2026-06-28', metric: 'ph', level: '提醒', value: 'pH 6.4', action: '泼洒生石灰调节', recoveredIn: '8 小时' }],
+    alerts: [{ date: '2026-06-28', metric: 'ph', level: '提醒', value: 'pH 6.4', action: '加注新水调节', recoveredIn: '8 小时' }],
     labs: [{
       agency: '茂名市农产品质量检测站（演示）', reportNo: 'MMZJ-2611-1103', sampled: '2026-11-03', issued: '2026-11-08', sample: '加州鲈肌肉 5 尾混样', category: '渔药残留',
       items: [
@@ -267,7 +270,7 @@ export const batches: readonly Batch[] = [
     code: 'HH-ZJ-2601-01', productId: 'grouper', species: '珍珠龙胆石斑', latin: 'Epinephelus fuscoguttatus × E. lanceolatus', baseId: 'zj', pondId: 'ZJ-01',
     stockDate: '2026-01-15', harvestDate: '2026-11-10', status: '已起捕',
     seed: { source: '海南石斑良种场（演示）', size: '8–10 cm', count: 15000, quarantine: '苗种检疫合格证 HN-2601-091（演示）' },
-    lineage: [{ pondId: 'ZJ-01', from: '2026-01-15', to: '2026-11-10', stage: '工厂化养成', qty: `${S(15000)} 尾放入`, note: '室内循环水车间，恒温养殖' }],
+    lineage: [{ pondId: 'ZJ-01', from: '2026-01-15', to: '2026-11-10', stage: '工厂化养成', qty: `${S(15000)} 尾放入`, note: '室内循环水车间养殖' }],
     events: [
       { date: '2026-01-15', kind: 'STOCK', title: '放苗入 A1 车间', detail: '珍珠龙胆石斑 15,000 尾', source: 'farmer' },
       { date: '2026-03-02', kind: 'FEED', title: '换用中期料', detail: '饲料批号 GF-3P-260226', source: 'farmer' },
@@ -344,14 +347,15 @@ export const batches: readonly Batch[] = [
   },
 ];
 
-const weekly = (base: number, shape: number[]) => shape.map(f => Math.round(base * f));
+/** 未来 8 周可供量：按形状把在塘存量的 85% 分配到各周，总量不超过存量。 */
+const weekly = (inPondKg: number, shape: number[]) => { const sum = shape.reduce((s, f) => s + f, 0); return shape.map(f => Math.floor(inPondKg * 0.85 * f / sum)); };
 export const products: readonly Product[] = [
-  { id: 'pompano', name: '阳江金鲳鱼', sub: '高位池养成 · 186 天', category: '鱼类', price: 39.8, unit: '条', spec: '约 500–600 g/条 · 冰鲜', stock: 320, sold: 1286, tags: ['检测 8 项合格', '有转塘档案'], art: 'pompano', batchCode: 'HH-YJ-2605-02', b2b: { wholesale: 26.5, inPondKg: 18600, nextHarvest: '2026-12-26', moq: '500 kg', weekly: weekly(3200, [0.6, 0.8, 1, 1, 0.9, 0.7, 1.1, 1.2]) } },
-  { id: 'shrimp', name: '南美白对虾', sub: 'SPF 虾苗 · 一次放养', category: '虾类', price: 59.9, unit: '盒（1 kg）', spec: '40–50 只/kg · 冰鲜盒装', stock: 210, sold: 2034, tags: ['检测 5 项合格', '实时水质'], art: 'shrimp', batchCode: 'HH-YJ-2607-03', b2b: { wholesale: 41, inPondKg: 9800, nextHarvest: '2027-01-08', moq: '300 kg', weekly: weekly(1800, [0.4, 0.5, 0.7, 1, 1, 1.2, 1.1, 0.9]) } },
-  { id: 'tilapia', name: '茂名吉富罗非鱼', sub: '淡水土塘 · 分塘养成', category: '鱼类', price: 18.8, unit: '条', spec: '约 600–800 g/条 · 鲜活', stock: 560, sold: 3410, tags: ['检测 6 项合格', '有分塘档案'], art: 'tilapia', batchCode: 'HH-MM-2604-01', b2b: { wholesale: 11.2, inPondKg: 15200, nextHarvest: '2026-12-12', moq: '1,000 kg', weekly: weekly(5200, [1, 1, 0.9, 0.9, 0.8, 0.8, 1, 1]) } },
-  { id: 'bass', name: '循环水加州鲈', sub: '配合饲料驯化 · 循环水', category: '鱼类', price: 32.6, unit: '条', spec: '约 450–550 g/条 · 鲜活', stock: 280, sold: 1592, tags: ['检测 5 项合格', '8 个探头'], art: 'bass', batchCode: 'HH-MM-2603-03', b2b: { wholesale: 22.8, inPondKg: 7400, nextHarvest: '2027-01-20', moq: '500 kg', weekly: weekly(2100, [0.5, 0.6, 0.6, 0.8, 1, 1, 1.1, 1.2]) } },
-  { id: 'grouper', name: '珍珠龙胆石斑', sub: '工厂化循环水 · 恒温', category: '鱼类', price: 118, unit: '条', spec: '约 0.8–1.0 kg/条 · 鲜活', stock: 96, sold: 486, tags: ['检测 5 项合格', '10 个探头'], art: 'grouper', batchCode: 'HH-ZJ-2601-01', b2b: { wholesale: 82, inPondKg: 4300, nextHarvest: '2027-02-10', moq: '200 kg', weekly: weekly(900, [0.3, 0.4, 0.5, 0.6, 0.8, 1, 1, 1]) } },
-  { id: 'seabream', name: '湛江黄鳍鲷', sub: '纳潮海水塘 · 冰鲜', category: '鱼类', price: 45.9, unit: '条', spec: '约 350–450 g/条 · 冰鲜', stock: 240, sold: 872, tags: ['检测 6 项合格', '实时水质'], art: 'seabream', batchCode: 'HH-ZJ-2604-02', b2b: { wholesale: 31, inPondKg: 12600, nextHarvest: '2026-12-30', moq: '300 kg', weekly: weekly(2400, [0.7, 0.8, 1, 1, 1, 0.9, 0.9, 1.1]) } },
+  { id: 'pompano', name: '阳江金鲳鱼', sub: '标粗池 + 高位池养成', category: '鱼类', price: 39.8, unit: '条', spec: '约 500–600 g/条 · 冰鲜', stock: 320, sold: 1286, tags: ['检测 8 项合格', '有转塘档案'], art: 'pompano', batchCode: 'HH-YJ-2605-02', b2b: { wholesale: 26.5, inPondKg: 18600, nextHarvest: '2026-12-26', moq: '500 kg', weekly: weekly(18600, [0.6, 0.8, 1, 1, 0.9, 0.7, 1.1, 1.2]) } },
+  { id: 'shrimp', name: '南美白对虾', sub: 'SPF 虾苗 · 一次放养', category: '虾类', price: 59.9, unit: '盒（1 kg）', spec: '40–50 只/kg · 冰鲜盒装', stock: 210, sold: 2034, tags: ['检测 5 项合格', '实时水质'], art: 'shrimp', batchCode: 'HH-YJ-2607-03', b2b: { wholesale: 41, inPondKg: 9800, nextHarvest: '2027-01-08', moq: '300 kg', weekly: weekly(9800, [0.4, 0.5, 0.7, 1, 1, 1.2, 1.1, 0.9]) } },
+  { id: 'tilapia', name: '茂名吉富罗非鱼', sub: '淡水土塘 · 分塘养成', category: '鱼类', price: 18.8, unit: '条', spec: '约 600–800 g/条 · 鲜活', stock: 560, sold: 3410, tags: ['检测 6 项合格', '有分塘档案'], art: 'tilapia', batchCode: 'HH-MM-2604-01', b2b: { wholesale: 11.2, inPondKg: 15200, nextHarvest: '2026-12-12', moq: '1,000 kg', weekly: weekly(15200, [1, 1, 0.9, 0.9, 0.8, 0.8, 1, 1]) } },
+  { id: 'bass', name: '循环水加州鲈', sub: '配合饲料驯化 · 循环水', category: '鱼类', price: 32.6, unit: '条', spec: '约 450–550 g/条 · 鲜活', stock: 280, sold: 1592, tags: ['检测 5 项合格', '8 个探头'], art: 'bass', batchCode: 'HH-MM-2603-03', b2b: { wholesale: 22.8, inPondKg: 7400, nextHarvest: '2027-01-20', moq: '500 kg', weekly: weekly(7400, [0.5, 0.6, 0.6, 0.8, 1, 1, 1.1, 1.2]) } },
+  { id: 'grouper', name: '珍珠龙胆石斑', sub: '工厂化循环水 · 室内车间', category: '鱼类', price: 118, unit: '条', spec: '约 0.8–1.0 kg/条 · 鲜活', stock: 96, sold: 486, tags: ['检测 5 项合格', '10 个探头'], art: 'grouper', batchCode: 'HH-ZJ-2601-01', b2b: { wholesale: 82, inPondKg: 4300, nextHarvest: '2027-02-10', moq: '200 kg', weekly: weekly(4300, [0.3, 0.4, 0.5, 0.6, 0.8, 1, 1, 1]) } },
+  { id: 'seabream', name: '湛江黄鳍鲷', sub: '纳潮海水塘 · 冰鲜', category: '鱼类', price: 45.9, unit: '条', spec: '约 350–450 g/条 · 冰鲜', stock: 240, sold: 872, tags: ['检测 6 项合格', '实时水质'], art: 'seabream', batchCode: 'HH-ZJ-2604-02', b2b: { wholesale: 31, inPondKg: 12600, nextHarvest: '2026-12-30', moq: '300 kg', weekly: weekly(12600, [0.7, 0.8, 1, 1, 1, 0.9, 0.9, 1.1]) } },
 ];
 
 export const demands = [
@@ -366,6 +370,9 @@ export const inPond = [
   { code: 'HH-YJ-2608-04', pondId: 'YJ-04', species: '金鲳鱼', stockDate: '2026-08-05', expect: '2026-12-26', count: '约 18,600 kg' },
   { code: 'HH-MM-2604-01B', pondId: 'MM-02', species: '罗非鱼', stockDate: '2026-07-05', expect: '2026-12-12', count: '约 15,200 kg' },
   { code: 'HH-ZJ-2607-03', pondId: 'ZJ-03', species: '黄鳍鲷', stockDate: '2026-07-12', expect: '2026-12-30', count: '约 12,600 kg' },
+  { code: 'HH-YJ-2609-05', pondId: 'YJ-05', species: '南美白对虾', stockDate: '2026-09-18', expect: '2027-01-08', count: '约 9,800 kg' },
+  { code: 'HH-MM-2607-04', pondId: 'MM-04', species: '加州鲈', stockDate: '2026-07-02', expect: '2027-01-20', count: '约 7,400 kg' },
+  { code: 'HH-ZJ-2605-04', pondId: 'ZJ-04', species: '珍珠龙胆石斑', stockDate: '2026-05-06', expect: '2027-02-10', count: '约 4,300 kg' },
 ] as const;
 
 export const platformStats = { sensorsOnline: 128, batchesInPond: 23, tracedBatches: 186, samplesToday: 46080 };
@@ -379,7 +386,7 @@ export const metricInfo: Record<Metric, { label: string; unit: string; color: st
 /** 适宜区间（演示），用于图表底带与达标率计算；不代表国家标准限值。 */
 export function metricRange(metric: Metric, water: Water): [number, number] {
   if (metric === 'do') return [5, 12];
-  if (metric === 'temp') return water === 'marine' ? [22, 32] : [20, 32];
+  if (metric === 'temp') return [18, 33];
   if (metric === 'ph') return water === 'marine' ? [7.5, 8.6] : [6.5, 8.5];
   return [0, 0.5];
 }
@@ -419,7 +426,6 @@ export function waterSeries(batch: Batch, metric: Metric): Point[] {
   const water = findBase(batch.baseId)?.water ?? 'marine';
   const days = daysBetween(batch.stockDate, batch.harvestDate) + 1;
   const rand = prng(hash(batch.code + metric));
-  const alertDays = new Set(batch.alerts.filter(a => a.metric === metric).map(a => a.date));
   const out: Point[] = [];
   for (let i = 0; i < days; i++) {
     const day = addDays(batch.stockDate, i);
@@ -431,9 +437,9 @@ export function waterSeries(batch: Batch, metric: Metric): Point[] {
     else if (metric === 'do') v = 7.2 - season * 0.7 + wave * 0.45;
     else if (metric === 'ph') v = (water === 'marine' ? 8.05 : 7.4) + wave * 0.12;
     else v = 0.18 + Math.max(0, season) * 0.08 + Math.abs(wave) * 0.06 + (i / days) * 0.08;
-    if (alertDays.has(day)) {
-      if (metric === 'do') v = 4.7; else if (metric === 'temp') v = water === 'marine' ? 32.8 : 33.6; else if (metric === 'ph') v = 6.4; else v = 0.62;
-    }
+    const alert = batch.alerts.find(a => a.metric === metric && a.date === day);
+    const alertValue = Number(alert?.value.match(/\d+(\.\d+)?/)?.[0]);
+    if (alert && Number.isFinite(alertValue)) v = alertValue;
     out.push({ day, value: round(v, metric === 'temp' ? 1 : 2) });
   }
   return out;
@@ -485,7 +491,7 @@ export function aiAnswers(batch: Batch): { q: string; a: string }[] {
   const tempRate = complianceRate(waterSeries(batch, 'temp'), metricRange('temp', base.water));
   return [
     { q: '这条鱼是从哪里来的？', a: `来自${company.short}${base.name}（${base.region}）的${pond.name}，批次号 ${batch.code}。${batch.lineage.length > 1 ? `养殖期间经历了${batch.lineage.map(l => l.stage).join('、')}，每次转移都有数量和照片记录。` : '整个养殖期都在这口塘，没有转塘。'}` },
-    { q: '打过药吗？检测结果怎么样？', a: drug ? `${drug.agency}于 ${drug.sampled} 抽样，对 ${drug.items.length} 个项目进行检测（报告号 ${drug.reportNo}），${drug.items.filter(i => i.pass).length} 项全部符合对照限值，其中禁用药物项目均为“未检出”。检测报告可在溯源档案中查看原件信息。` : '本批次暂无渔药残留检测报告。' },
+    { q: '打过药吗？检测结果怎么样？', a: drug ? `${drug.agency}于 ${drug.sampled} 抽样，对 ${drug.items.length} 个项目进行检测（报告号 ${drug.reportNo}），${drug.items.every(i => i.pass) ? `${drug.items.length} 项全部符合对照限值，其中禁用药物项目均为“未检出”。` : `${drug.items.filter(i => i.pass).length} 项符合、${drug.items.filter(i => !i.pass).length} 项不符合对照限值。`}检测报告可在溯源档案中查看原件信息。` : '本批次暂无渔药残留检测报告。' },
     { q: '水质怎么样？', a: `养殖期 ${cultureDays(batch)} 天，塘里装了 ${batch.sensors} 个探头，累计自动采集 ${batch.provenance.sensorSamples.toLocaleString('zh-CN')} 条数据。溶解氧日均值达标率 ${doRate}%，水温适宜率 ${tempRate}%。${batch.alerts.length ? `期间有 ${batch.alerts.length} 次提醒/预警，均已处理：${batch.alerts.map(a => `${a.date} ${metricInfo[a.metric].label} ${a.value}，${a.action}，${a.recoveredIn}恢复`).join('；')}。` : '期间没有触发预警。'}` },
     { q: '吃的是什么饲料？', a: `全程使用 ${new Set(batch.feeds.map(f => f.brand)).size} 个品牌的配合饲料，共 ${batch.feeds.length} 个批号，累计投喂 ${(totalFeedKg(batch) / 1000).toFixed(1)} 吨，饲料系数约 ${feedConversion(batch)}。分阶段为：${batch.feeds.map(f => `${f.stage}${f.product}（批号 ${f.lot}）`).join('；')}。` },
     { q: '养了多久？什么时候捕的？', a: `${batch.stockDate} 放苗，${batch.harvestDate} 起捕，共养殖 ${cultureDays(batch)} 天。起捕 ${batch.harvest.qtyKg.toLocaleString('zh-CN')} kg，规格 ${batch.harvest.spec}，${batch.harvest.method}。` },

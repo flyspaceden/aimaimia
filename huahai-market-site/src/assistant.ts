@@ -3,7 +3,8 @@ import { aiAnswers, findBatch, generalQuestions, type Batch } from './data.js';
 import { icon } from './svg.js';
 
 interface QA { q: string; a: string }
-const KEYWORDS: [RegExp, number][] = [[/哪|来源|产地|基地|塘/, 0], [/药|检测|残留|安全|合格/, 1], [/水|溶氧|温度|pH|氨/i, 2], [/饲料|吃|喂/, 3], [/多久|天|捕|时间/, 4], [/可信|真|确权|改/, 5]];
+/** 按具体程度排序：先匹配可信度、检测、水质、饲料、时间，最后才是来源。 */
+const KEYWORDS: [RegExp, number][] = [[/可信|真实|确权|篡改|修改/, 5], [/药|检测|残留|安全|合格/, 1], [/水质|溶氧|水温|温度|pH|氨/i, 2], [/饲料|吃|喂/, 3], [/多久|几天|起捕|捕捞|时间/, 4], [/哪|来源|产地|基地|塘/, 0]];
 
 export class Assistant {
   private batch: Batch | undefined;
@@ -33,6 +34,7 @@ export class Assistant {
   private flush(): void {
     window.clearInterval(this.timer);
     if (this.pending) { this.pending[0].textContent = this.pending[1]; this.pending = undefined; }
+    this.log.setAttribute('aria-busy', 'false');
   }
   ask(index: number): void {
     const qa = this.qas[index];
@@ -57,14 +59,16 @@ export class Assistant {
     row.append(span);
     this.flush();
     this.log.append(row);
+    this.log.setAttribute('aria-busy', 'false');
     if (instant || this.reduced()) { span.textContent = text; this.log.scrollTop = this.log.scrollHeight; return; }
     let i = 0;
     this.pending = [span, text];
+    this.log.setAttribute('aria-busy', 'true'); // 逐字显示期间不让读屏反复播报
     this.timer = window.setInterval(() => {
       i = Math.min(text.length, i + 3);
       span.textContent = text.slice(0, i);
       this.log.scrollTop = this.log.scrollHeight;
-      if (i >= text.length) { window.clearInterval(this.timer); this.pending = undefined; }
+      if (i >= text.length) { window.clearInterval(this.timer); this.pending = undefined; this.log.setAttribute('aria-busy', 'false'); }
     }, 16);
   }
 }

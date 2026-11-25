@@ -51,6 +51,21 @@ try {
     await page.goBack(); await page.locator('.pcard').first().waitFor();
     assert.equal(await page.locator('.pcard').count(), 2);
   });
+  await check('排序下拉保持焦点、后退恢复滚动位置', async () => {
+    await go('shop');
+    await page.locator('#shop-sort').selectOption('sold');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'shop-sort');
+    assert.match(page.url(), /sort=sold/);
+    await page.setViewportSize({ width: 1440, height: 600 });
+    await go('shop');
+    await page.evaluate(() => window.scrollTo(0, 700)); await page.waitForTimeout(100);
+    await page.locator('.pcard h3 a').last().click();
+    await page.waitForURL(/#product\//); await page.locator('.pd').waitFor();
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    await page.goBack(); await page.locator('.pcard').first().waitFor();
+    assert.ok(Math.abs(await page.evaluate(() => window.scrollY) - 700) < 5);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+  });
   await check('商品详情到溯源档案，水质指标切换', async () => {
     await go('product/pompano');
     await page.locator('a', { hasText: '查看完整溯源档案' }).click();
@@ -61,7 +76,7 @@ try {
     assert.match(page.url(), /#trace\/HH-YJ-2605-02$/, '目录跳转不能改变路由');
     await page.locator('[data-metric="ph"]').click();
     assert.match(await page.locator('#water-chart svg').getAttribute('aria-label'), /pH/);
-    assert.equal(await page.locator('[data-metric="ph"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('[data-metric="ph"]').getAttribute('aria-pressed'), 'true');
     await page.screenshot({ path: output + 'trace-desktop.png', fullPage: true });
   });
   await check('购物车数量边界、删除、空态和演示下单', async () => {
@@ -72,6 +87,15 @@ try {
     assert.equal(await page.locator('#pd-qty').inputValue(), '1');
     await page.locator('[data-add-qty="grouper"]').click();
     assert.equal(await page.locator('#cart-count').innerText(), '1');
+    await page.locator('#pd-qty').fill('96'); await page.locator('#pd-qty').dispatchEvent('change');
+    await page.locator('[data-add-qty="grouper"]').click();
+    await page.locator('[data-add-qty="grouper"]').click();
+    assert.match(await page.locator('#toast').innerText(), /库存上限/);
+    assert.equal(await page.locator('#cart-count').innerText(), '96');
+    await go('cart');
+    await page.locator('[data-cart-remove="grouper"]').click();
+    await go('product/grouper');
+    await page.locator('[data-add-qty="grouper"]').click();
     await go('cart');
     await page.locator('[data-cart-step="-1"]').click();
     assert.match(await heading(), /购物车是空的/);

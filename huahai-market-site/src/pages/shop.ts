@@ -43,7 +43,7 @@ export function productPage(id: string): string {
   <section class="pd">
     <div class="pd-art card">${fishArt(p.art, p.name)}<span class="pd-badge">${icon('shield', 'ic ic-xs')}一品一码 · 可溯源</span></div>
     <div class="pd-info">
-      <div class="kicker">${esc(p.sub)}</div>
+      <div class="kicker">${esc(p.sub)} · ${cultureDays(b)} 天</div>
       <h1 tabindex="-1" data-heading>${esc(p.name)}</h1>
       <p class="muted">${esc(p.spec)}</p>
       <div class="pd-price"><span class="price price-lg">¥${yuan(p.price)}</span><span class="muted"> / ${esc(p.unit)}</span><span class="tag tag-demo">演示价</span></div>
@@ -70,7 +70,7 @@ export function productPage(id: string): string {
       <div class="kpi">${ring(doRate, metricInfo.do.color, '溶氧达标率')}<span>溶氧达标率</span></div>
       <div class="kpi"><b class="mono">${cultureDays(b)}</b><span>养殖天数</span></div>
       <div class="kpi"><b class="mono">${(totalFeedKg(b) / 1000).toFixed(1)} t</b><span>累计投喂</span></div>
-      <div class="kpi"><b class="mono">${drug.items.length}/${drug.items.length}</b><span>检测合格项</span></div>
+      <div class="kpi"><b class="mono">${drug.items.filter(i => i.pass).length}/${drug.items.length}</b><span>检测合格项</span></div>
       <div class="kpi"><b class="mono">${b.survival}%</b><span>成活率</span></div>
     </div>
     <div class="qa-row">${ai.slice(0, 4).map((x, i) => `<button class="chip chip-q" data-ask="${i}" data-batch="${b.code}">${icon('chat', 'ic ic-xs')}${esc(x.q)}</button>`).join('')}</div>

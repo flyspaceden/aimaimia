@@ -28,8 +28,12 @@ let tick = 0;
 let selectedPond = '';
 let samples = platformStats.samplesToday;
 let dlgReturn: HTMLElement | null = null;
+/** 前进导航（点链接、程序跳转）回到顶部；浏览器后退/前进恢复该页上次的滚动位置。 */
+let forwardNav = false;
+const scrollMemo = new Map<string, number>();
+window.addEventListener('scroll', () => scrollMemo.set(location.hash, window.scrollY), { passive: true });
 
-function go(next: Parameters<typeof routeHash>[0]): void { location.hash = routeHash(next); }
+function go(next: Parameters<typeof routeHash>[0]): void { forwardNav = true; location.hash = routeHash(next); }
 
 function render(focus: boolean): void {
   const r = route;
@@ -61,10 +65,15 @@ function render(focus: boolean): void {
   assistant.setContext(batch?.code);
   setMenu(false);
   updateCartBadge();
-  if (focus) { window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior }); (view.querySelector<HTMLElement>('[data-heading]') ?? view).focus({ preventScroll: true }); }
+  if (focus) {
+    const restore = forwardNav ? 0 : scrollMemo.get(location.hash) ?? 0;
+    forwardNav = false;
+    (view.querySelector<HTMLElement>('[data-heading]') ?? view).focus({ preventScroll: true });
+    window.scrollTo({ top: restore, behavior: 'instant' as ScrollBehavior });
+  }
 }
 function onRoute(): void {
-  if (dlg.open) dlg.close();
+  if (dlg.open) { dlgReturn = null; dlg.close(); }
   route = parseRoute(location.hash);
   render(true);
 }
@@ -83,7 +92,18 @@ function notify(text: string): void {
 }
 function setMenu(open: boolean): void {
   get<HTMLElement>('#nav').classList.toggle('nav-open', open);
-  get<HTMLElement>('#menu-btn').setAttribute('aria-expanded', String(open));
+  const btn = get<HTMLElement>('#menu-btn');
+  btn.setAttribute('aria-expanded', String(open));
+  btn.setAttribute('aria-label', open ? '收起导航' : '展开导航');
+}
+function closeAssistant(): void { assistant.close(); get<HTMLElement>('.top-actions [data-action="assistant"]').focus(); }
+
+function addAndNotify(p: NonNullable<ReturnType<typeof findProduct>>, qty: number): void {
+  const before = cartCount();
+  addToCart(p, qty);
+  updateCartBadge();
+  const added = cartCount() - before;
+  notify(added ? `已加入购物车：${p.name} × ${added}` : `${p.name} 已达库存上限（${p.stock}）`);
 }
 
 // ---------- 对话框（询价、报价、发布表单预览；关闭即清除） ----------
@@ -142,14 +162,16 @@ app.addEventListener('click', e => {
   const el = e.target.closest<HTMLElement>('button,a');
   if (!el) return;
   const d = el.dataset;
-  if (d.jump) { e.preventDefault(); const t = document.getElementById(d.jump); t?.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' }); return; }
+  const modified = e instanceof MouseEvent && (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey);
+  if (el instanceof HTMLAnchorElement && el.getAttribute('href')?.startsWith('#') && !d.jump && !modified) { forwardNav = true; setMenu(false); }
+  if (d.jump) { if (modified) return; e.preventDefault(); const t = document.getElementById(d.jump); t?.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' }); return; }
   if (el.classList.contains('skip')) { e.preventDefault(); (view.querySelector<HTMLElement>('[data-heading]') ?? view).focus(); return; }
-  if (d.add) { const p = findProduct(d.add); if (p) { addToCart(p); updateCartBadge(); notify(`已加入购物车：${p.name}`); } return; }
+  if (d.add) { const p = findProduct(d.add); if (p) addAndNotify(p, 1); return; }
   if (d.step) { const input = view.querySelector<HTMLInputElement>('#pd-qty'); if (input) input.value = String(Math.max(1, Math.min(Number(input.max), (Number(input.value) || 1) + Number(d.step)))); return; }
   if (d.addQty || d.buy) {
     const p = findProduct(d.addQty || d.buy);
     const qty = Math.max(1, Math.min(p?.stock ?? 1, Math.floor(Number(view.querySelector<HTMLInputElement>('#pd-qty')?.value) || 1)));
-    if (p) { addToCart(p, qty); updateCartBadge(); if (d.buy) go({ name: 'checkout' }); else notify(`已加入购物车：${p.name} × ${qty}`); }
+    if (p) { if (d.buy) { addToCart(p, qty); updateCartBadge(); go({ name: 'checkout' }); } else addAndNotify(p, qty); }
     return;
   }
   if (d.cartStep || d.cartRemove) {
@@ -157,13 +179,15 @@ app.addEventListener('click', e => {
     const line = cart.find(l => l.productId === p?.id);
     if (p && line) setQty(p, d.cartRemove ? 0 : line.qty + Number(d.cartStep));
     const id = d.pid; render(false);
-    (view.querySelector<HTMLElement>(`[data-cart-step="${d.cartStep}"][data-pid="${id}"]`) ?? view.querySelector<HTMLElement>('[data-heading]'))?.focus();
+    const same = view.querySelector<HTMLButtonElement>(`[data-cart-step="${d.cartStep}"][data-pid="${id}"]`);
+    const target = same && !same.disabled ? same : view.querySelector<HTMLElement>(`[data-pid="${id}"]:not([disabled])`) ?? view.querySelector<HTMLElement>('[data-heading]');
+    target?.focus();
     return;
   }
   if (d.metric && route.name === 'trace') {
     const b = findBatch(route.id); if (!b) return;
     get('#water-chart').innerHTML = waterBlock(b, d.metric as Metric);
-    view.querySelectorAll('[data-metric]').forEach(x => x.setAttribute('aria-selected', String(x === el)));
+    view.querySelectorAll('[data-metric]').forEach(x => x.setAttribute('aria-pressed', String(x === el)));
     return;
   }
   if (d.pond && route.name === 'base') { selectedPond = d.pond; render(false); view.querySelector<HTMLElement>(`[data-pond="${d.pond}"]`)?.focus(); return; }
@@ -183,7 +207,7 @@ app.addEventListener('click', e => {
   if (d.panel) { const p = panels[d.panel]; if (p) showDialog(p.title, fields(p.rows)); return; }
   switch (d.action) {
     case 'assistant': assistant.open(d.batch); return;
-    case 'ai-close': assistant.close(); get<HTMLElement>('[data-action="assistant"]').focus(); return;
+    case 'ai-close': closeAssistant(); return;
     case 'dlg-close': dlg.close(); return;
     case 'pay': {
       if (!cart.length) return;
@@ -216,10 +240,16 @@ app.addEventListener('submit', e => {
 });
 app.addEventListener('change', e => {
   const t = e.target;
-  if (t instanceof HTMLSelectElement && t.id === 'shop-sort' && isSort(t.value)) go({ ...route, name: 'shop', sort: t.value });
+  if (t instanceof HTMLSelectElement && t.id === 'shop-sort' && isSort(t.value)) {
+    // 只替换地址并原地重绘，保留下拉框焦点，键盘用户可连续用方向键切换排序
+    route = { ...route, sort: t.value };
+    history.replaceState(null, '', routeHash(route));
+    render(false);
+    view.querySelector<HTMLSelectElement>('#shop-sort')?.focus();
+  }
   if (t instanceof HTMLInputElement && t.id === 'pd-qty') t.value = String(Math.max(1, Math.min(Number(t.max), Math.floor(Number(t.value) || 1))));
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !get<HTMLElement>('#ai-panel').hidden && !dlg.open) assistant.close(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !get<HTMLElement>('#ai-panel').hidden && !dlg.open) closeAssistant(); });
 
 // ---------- 实时数据（演示）：每 3 秒更新读数；减少动态效果时不跳动 ----------
 window.setInterval(() => {
