@@ -1,3 +1,4 @@
+// 浏览器集成检查：PLAYWRIGHT_MODULE 指向本机已有 Playwright；BASE_URL 默认本地预览。截图写入忽略的 .qa/。
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
@@ -9,154 +10,124 @@ const output = fileURLToPath(new URL('../.qa/', import.meta.url));
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrome', headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-const errors = [], unexpectedRequests = [], failures = [];
-page.on('pageerror', error => errors.push(error.message));
-page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-page.on('request', request => { if (request.method() !== 'GET' || new URL(request.url()).origin !== new URL(base).origin) unexpectedRequests.push(`${request.method()} ${request.url()}`); });
-page.on('response', response => { if (response.status() >= 400) failures.push(`${response.status()} ${response.url()}`); });
-const checks = [];
-async function check(name, action) { await action(); checks.push(name); }
+const errors = [], unexpected = [], failures = [];
+page.on('pageerror', e => errors.push(e.message));
+page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('request', r => { if (r.method() !== 'GET' || new URL(r.url()).origin !== new URL(base).origin) unexpected.push(`${r.method()} ${r.url()}`); });
+page.on('response', r => { if (r.status() >= 400) failures.push(`${r.status()} ${r.url()}`); });
+const passed = [];
+async function check(name, fn) { await fn(); passed.push(name); }
+const heading = () => page.locator('[data-heading]').first().innerText();
+const go = async hash => { await page.goto(`${base}/#${hash}`); await page.locator('[data-heading]').first().waitFor(); };
 try {
-  await page.goto(base);
-  await page.locator('.hh-product').first().waitFor();
-  await check('初始化与元数据', async () => {
-    assert.equal(await page.locator('.hh-product').count(), 3);
-    assert.match(await page.title(), /货源大厅/);
-    assert.equal(await page.locator('.hh-logo').evaluate(img => img.complete && img.naturalWidth > 0), true);
+  await check('首页与批次码查询（大小写/空格容错）', async () => {
+    await go('home');
+    assert.equal(await page.locator('.pcard').count(), 4);
+    await page.locator('#hero-code').fill('  hh-yj-2605-02 ');
+    await page.locator('#hero-code').press('Enter');
+    await page.locator('#sec-ov').waitFor();
+    assert.match(await heading(), /金鲳鱼/);
   });
-  await page.screenshot({ path: output + '/desktop.png', fullPage: true });
-  await check('筛选交集、空态和清空', async () => {
-    await page.locator('[data-category="畜禽"]').click();
-    assert.match(await page.locator('#hh-products').innerText(), /暂无/);
-    await page.locator('[data-action="reset"]').click();
-    await page.locator('#hh-query').fill('茂名');
-    await page.locator('#hh-query').press('Enter');
-    assert.equal(await page.locator('.hh-product').count(), 1);
-    await page.locator('[data-category="果蔬"]').click();
-    assert.equal(await page.locator('.hh-product').count(), 0);
-    await page.locator('[data-action="reset"]').click();
+  await check('未知批次、商品、基地、订单显示空态', async () => {
+    await go('trace/NOPE-1');
+    assert.match(await page.locator('[role=alert]').innerText(), /NOPE-1/);
+    for (const [hash, text] of [['product/nope', /没有找到这件商品/], ['base/nope', /没有找到这个基地/], ['order/nope', /没有找到这个订单/]]) { await go(hash); assert.match(await heading(), text); }
+    await page.goto(`${base}/#unknown/route`); await page.locator('[data-heading]').first().waitFor();
+    assert.match(await page.title(), /首页/);
   });
-  await check('链接刷新与返回恢复', async () => {
-    await page.locator('[data-category="水产"]').click();
-    await page.locator('#hh-query').fill('茂名');
-    await page.locator('#hh-query').press('Enter');
-    await page.reload();
-    assert.equal(await page.locator('#hh-query').inputValue(), '茂名');
-    assert.equal(await page.locator('.hh-product').count(), 1);
-    await page.locator('[data-page="demand"]').click();
-    await page.goBack();
-    await page.waitForFunction(() => document.querySelector('[data-view="market"]').hidden === false);
-    assert.equal(await page.locator('.hh-product').count(), 1);
+  await check('商城筛选、排序、深链刷新与返回', async () => {
+    await go('shop');
+    await page.locator('.seg-i', { hasText: '虾类' }).click();
+    await page.waitForURL(/category=/);
+    await page.waitForFunction(() => document.querySelectorAll('.pcard').length === 1);
+    assert.equal(await page.locator('.pcard').count(), 1);
+    await page.goto(`${base}/#shop?sort=price-desc`); await page.locator('.pcard').first().waitFor();
+    assert.match(await page.locator('.pcard h3').first().innerText(), /石斑/);
+    await page.locator('#shop-q').fill('湛江'); await page.locator('#shop-q').press('Enter');
+    await page.waitForURL(/q=/); await page.reload(); await page.locator('.pcard').first().waitFor();
+    assert.equal(await page.locator('.pcard').count(), 2);
+    await page.locator('#shop-q').fill('不存在的鱼'); await page.locator('#shop-q').press('Enter');
+    await page.locator('.empty').waitFor();
+    await page.goBack(); await page.locator('.pcard').first().waitFor();
+    assert.equal(await page.locator('.pcard').count(), 2);
   });
-  await check('模态焦点、Escape和独立货源询价', async () => {
-    const button = page.locator('[data-item="tilapia"]');
-    await button.click();
-    assert.equal(await page.locator('#hh-dialog').evaluate(el => el.open), true);
-    assert.equal(await page.locator('[data-action="close"]').evaluate(el => el === document.activeElement), true);
-    await page.keyboard.press('Shift+Tab');
-    // 原生 dialog 允许焦点进入浏览器工具栏（此时 activeElement 为 body），但不能进入背景控件。
-    assert.equal(await page.evaluate(() => document.activeElement === document.body || !!document.activeElement.closest('dialog')), true);
-    await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => !!document.activeElement.closest('dialog')), true);
+  await check('商品详情到溯源档案，水质指标切换', async () => {
+    await go('product/pompano');
+    await page.locator('a', { hasText: '查看完整溯源档案' }).click();
+    await page.waitForURL(/#trace\/HH-YJ-2605-02/);
+    await page.locator('#sec-ov').waitFor();
+    for (const id of ['sec-lineage', 'sec-timeline', 'sec-feed', 'sec-water', 'sec-lab', 'sec-photo', 'sec-proof']) assert.equal(await page.locator('#' + id).count(), 1, id);
+    await page.locator('[data-jump="sec-lab"]').click();
+    assert.match(page.url(), /#trace\/HH-YJ-2605-02$/, '目录跳转不能改变路由');
+    await page.locator('[data-metric="ph"]').click();
+    assert.match(await page.locator('#water-chart svg').getAttribute('aria-label'), /pH/);
+    assert.equal(await page.locator('[data-metric="ph"]').getAttribute('aria-selected'), 'true');
+    await page.screenshot({ path: output + 'trace-desktop.png', fullPage: true });
+  });
+  await check('购物车数量边界、删除、空态和演示下单', async () => {
+    await go('product/grouper');
+    await page.locator('#pd-qty').fill('999'); await page.locator('#pd-qty').dispatchEvent('change');
+    assert.equal(await page.locator('#pd-qty').inputValue(), '96');
+    await page.locator('#pd-qty').fill('0'); await page.locator('#pd-qty').dispatchEvent('change');
+    assert.equal(await page.locator('#pd-qty').inputValue(), '1');
+    await page.locator('[data-add-qty="grouper"]').click();
+    assert.equal(await page.locator('#cart-count').innerText(), '1');
+    await go('cart');
+    await page.locator('[data-cart-step="-1"]').click();
+    assert.match(await heading(), /购物车是空的/);
+    await go('product/shrimp');
+    await page.locator('[data-buy="shrimp"]').click();
+    await page.waitForURL(/#checkout/);
+    await page.locator('[data-action="pay"]').click();
+    await page.waitForURL(/#order\//);
+    await page.locator('.success').waitFor();
+    assert.match(await heading(), /支付成功/);
+    assert.equal(await page.locator('#cart-count').isHidden(), true);
+  });
+  await check('AI 助手：无上下文、批次上下文、自由提问', async () => {
+    await go('home');
+    await page.locator('.top-actions [data-action="assistant"]').click();
+    assert.match(await page.locator('#ai-log').innerText(), /打开任一商品或批次/);
+    await page.locator('#ai-input').fill('这批鱼打过药吗'); await page.locator('#ai-input').press('Enter');
+    await page.waitForFunction(() => document.querySelector('#ai-log').innerText.includes('请先打开一个商品'));
     await page.keyboard.press('Escape');
-    assert.equal(await button.evaluate(el => el === document.activeElement), true);
-    await button.click();
-    await page.locator('[data-action="inquiry"]').click();
-    assert.match(await page.locator('#hh-dialog-title').innerText(), /罗非鱼/);
-    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#ai-panel').isHidden(), true);
+    await go('trace/HH-ZJ-2604-02');
+    await page.locator('.top-actions [data-action="assistant"]').click();
+    await page.locator('[data-ai-q="1"]').click();
+    await page.waitForFunction(() => document.querySelector('#ai-log').innerText.includes('ZJHY-2611-1106'));
+    await page.locator('[data-action="ai-close"]').click();
+    assert.equal(await page.locator('#ai-panel').isHidden(), true);
   });
-  await check('采购条目不串用', async () => {
-    await page.locator('[data-page="demand"]').click();
-    await page.locator('[data-demand="1"]').click();
-    assert.match(await page.locator('#hh-dialog-title').innerText(), /番茄/);
-    assert.match(await page.locator('#hh-dialog-body').innerText(), /800 公斤/);
-    assert.match(await page.locator('#hh-dialog-body').innerText(), /深圳/);
-    await page.keyboard.press('Escape');
+  await check('基地塘口切换与 B 端表单预览（XSS 文本输出、关闭清除）', async () => {
+    await go('base/mm');
+    await page.locator('[data-pond="MM-03"]').click();
+    assert.equal(await page.locator('[data-pond="MM-03"]').getAttribute('aria-pressed'), 'true');
+    await go('source');
+    await page.locator('[data-form="buy"]').click();
+    await page.locator('#local-form [name=subject]').fill('<img src=x onerror=alert(1)>');
+    await page.locator('#local-form [name=quantity]').fill('2000');
+    await page.locator('#local-form [name=date]').fill('2099-01-01');
+    await page.locator('#local-form [name=req]').fill('测试');
+    await page.locator('#local-form [type=submit]').click();
+    assert.match(await page.locator('#form-result').innerText(), /<img src=x/);
+    assert.equal(await page.locator('#form-result img').count(), 0);
+    await page.locator('[data-action="dlg-close"]').click();
+    await page.waitForFunction(() => document.querySelector('#dlg-body').innerHTML === '' && !document.querySelector('#dlg').open);
   });
-  await check('跳过导航不修改当前路由', async () => {
-    for (const view of ['demand', 'trace', 'work']) {
-      await page.locator(`[data-page="${view}"]`).click();
-      const before = page.url();
-      await page.locator('.hh-skip').focus();
-      await page.keyboard.press('Enter');
-      assert.equal(page.url(), before);
-      assert.equal(await page.locator(`[data-view="${view}"] [data-view-heading]`).evaluate(el => el === document.activeElement), true);
-    }
-  });
-  await check('批次成功、失败和大小写', async () => {
-    await page.locator('[data-page="trace"]').click();
-    await page.locator('#hh-batch').fill('unknown');
-    await page.locator('#hh-batch').press('Enter');
-    assert.equal(await page.locator('#hh-trace-empty').isVisible(), true);
-    await page.locator('#hh-batch').fill(' hh-demo-001 ');
-    await page.locator('#hh-batch').press('Enter');
-    assert.equal(await page.locator('#hh-trace-result').isVisible(), true);
-  });
-  await check('工作台状态和报价', async () => {
-    await page.locator('[data-page="work"]').click();
-    await page.locator('[data-status="complete"]').click();
-    assert.match(await page.locator('#hh-orders').innerText(), /暂无/);
-    await page.locator('[data-status="quoted"]').click();
-    await page.locator('[data-action="review"]').click();
-    assert.match(await page.locator('#hh-dialog-body').innerText(), /12.80/);
-    await page.keyboard.press('Escape');
-    await page.locator('[data-status="ongoing"]').click();
-    await page.locator('[data-action="orderdetail"]').click();
-    assert.match(await page.locator('#hh-dialog-body').innerText(), /验收与异议/);
-    await page.keyboard.press('Escape');
-  });
-  await check('三类表单校验、文本转义和关闭清除', async () => {
-    await page.locator('[data-page="market"]').click();
-    for (const action of ['buy', 'sell', 'join']) {
-      await page.locator(`[data-action="${action}"]`).first().click();
-      const form = page.locator('#hh-local-form');
-      assert.equal(await form.evaluate(el => el.checkValidity()), false);
-      await form.locator('[name="subject"]').fill('<img src=x onerror=alert(1)>');
-      if (action === 'join') await form.locator('[name="region"]').fill('广东茂名');
-      else {
-        await form.locator('[name="quantity"]').fill('-1');
-        assert.equal(await form.locator('[name="quantity"]').evaluate(el => el.checkValidity()), false);
-        await form.locator('[name="quantity"]').fill('2000');
-        await form.locator('[name="date"]').fill('2099-01-01');
-      }
-      await form.locator('textarea').fill('   ');
-      await form.locator('button[type=submit]').click();
-      assert.equal(await form.locator('textarea').evaluate(el => el.checkValidity()), false);
-      await form.locator('textarea').fill('提供批次资料，广州交付。');
-      await form.locator('button[type=submit]').click();
-      assert.match(await page.locator('#hh-form-result').innerText(), /<img src=x onerror=alert\(1\)>/);
-      assert.equal(await page.locator('#hh-form-result img').count(), 0);
-      assert.match(await page.locator('#hh-form-result').innerText(), /未发送申请/);
-      await page.keyboard.press('Escape');
-      await page.locator(`[data-action="${action}"]`).first().click();
-      assert.equal(await page.locator('[name="subject"]').inputValue(), '');
-      await page.keyboard.press('Escape');
-    }
-  });
-  await check('多宽度和短屏对话框', async () => {
-    for (const width of [1440, 1024, 768, 390, 320]) {
-      await page.setViewportSize({ width, height: 844 });
-      for (const view of ['market', 'demand', 'trace', 'work']) {
-        await page.locator(`[data-page="${view}"]`).click();
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, `${view} at ${width}`);
+  await check('多宽度无横向溢出', async () => {
+    for (const width of [375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const hash of ['home', 'shop', 'product/bass', 'trace/HH-MM-2604-01', 'base/zj', 'source', 'work', 'checkout']) {
+        await go(hash);
+        const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert.equal(over, 0, `${width} ${hash}`);
       }
     }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.locator('[data-page="market"]').click();
-    await page.locator('#hh-query').fill('');
-    await page.locator('#hh-query').press('Enter');
-    await page.locator('[data-category="all"]').click();
-    await page.screenshot({ path: output + '/mobile.png', fullPage: true });
-    await page.setViewportSize({ width: 320, height: 400 });
-    await page.locator('[data-action="buy"]').first().click();
-    await page.locator('#hh-local-form button').scrollIntoViewIfNeeded();
-    assert.equal(await page.locator('#hh-local-form button').isVisible(), true);
-    assert.equal(await page.locator('#hh-dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
-    await page.keyboard.press('Escape');
+    await go('trace/HH-YJ-2605-02');
+    await page.screenshot({ path: output + 'trace-mobile.png', fullPage: true });
   });
-  assert.deepEqual(errors, []);
-  assert.deepEqual(unexpectedRequests, []);
-  assert.deepEqual(failures, []);
-  assert.deepEqual(await page.evaluate(() => [localStorage.length, sessionStorage.length]), [0, 0]);
-  console.log(JSON.stringify({ passed: checks, errors, unexpectedRequests, failures }, null, 2));
+  assert.deepEqual(errors, []); assert.deepEqual(unexpected, []); assert.deepEqual(failures, []);
+  console.log(`浏览器检查通过 ${passed.length} 组：\n- ${passed.join('\n- ')}`);
 } finally { await browser.close(); }
