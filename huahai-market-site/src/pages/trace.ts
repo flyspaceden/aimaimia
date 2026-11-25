@@ -41,7 +41,7 @@ export function tracePage(code: string, metric: Metric = 'do'): string {
       </div>
       <div class="row gap"><a class="btn btn-primary" href="${href('product', p.id)}">${icon('cart')}购买这批货</a><button class="btn btn-ghost" data-action="assistant" data-batch="${b.code}">${icon('spark')}问 AI</button></div>
     </div>
-    <div class="tr-code">${demoCode(b.code)}<span class="muted xs">包装扫码即达本页（演示码）</span><div class="ring-pair">${ring(traceCompleteness(b), '#34d399', '溯源完整度')}<span class="xs muted">溯源完整度</span></div></div>
+    <div class="tr-code">${demoCode(b.code)}<span class="muted xs">包装扫码即达本页（演示码）</span><div class="ring-pair">${ring(traceCompleteness(b), '#15803d', '溯源完整度')}<span class="xs muted">溯源完整度</span></div></div>
   </section>
 
   <nav class="tabs" aria-label="档案目录">${SECTIONS.map(([id, label]) => `<a href="#sec-${id}" data-jump="sec-${id}">${label}</a>`).join('')}</nav>
@@ -77,7 +77,7 @@ export function tracePage(code: string, metric: Metric = 'do'): string {
     <div class="sec-head"><div><div class="kicker">${icon('leaf', 'ic ic-xs')} 饲料投喂</div><h2>吃了什么，吃了多少</h2></div>${sourceBadge('farmer')}</div>
     <div class="feed-list">${b.feeds.map((f, i) => `<div class="feed-i"><div><b>${esc(f.product)}</b><div class="xs muted">${esc(f.brand)} · 粗蛋白 ${esc(f.protein)} · ${esc(f.stage)}</div></div>
       <div class="mono xs">批号 ${esc(f.lot)}</div>
-      <div class="feed-bar">${spanBar(daysBetween(b.stockDate, f.from), daysBetween(b.stockDate, f.to), days, ['#22d3ee', '#34d399', '#a3e635', '#fbbf24'][i % 4]!)}<span class="xs mono">${f.from.slice(5)} – ${f.to.slice(5)}</span></div>
+      <div class="feed-bar">${spanBar(daysBetween(b.stockDate, f.from), daysBetween(b.stockDate, f.to), days, ['#0e7490', '#15803d', '#65a30d', '#b45309'][i % 4]!)}<span class="xs mono">${f.from.slice(5)} – ${f.to.slice(5)}</span></div>
       <b class="mono feed-kg">${fmt(f.kg)} kg</b></div>`).join('')}</div>
     <p class="sm muted">合计 ${fmt(totalFeedKg(b))} kg，饲料系数约 ${feedConversion(b)}（投喂量 ÷ 起捕量）。饲料按入库批号领用，可追到对应饲料厂出厂批次。</p>
   </section>

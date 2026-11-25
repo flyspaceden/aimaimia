@@ -29,7 +29,7 @@ export function sourcePage(): string {
 
   <section class="section">
     <div class="sec-head"><div><div class="kicker">${icon('calendar', 'ic ic-xs')} 供货日历</div><h2>未来 8 周预计可供量</h2></div><span class="muted sm">自 ${weekStart} 起 · 按在塘存量与起捕计划估算</span></div>
-    <div class="weeks-grid">${products.map(p => `<div class="card weeks-card"><div class="row"><b>${esc(p.name)}</b><span class="mono xs">${fmt(p.b2b.weekly.reduce((s, v) => s + v, 0))} kg</span></div>${weekBars(p.b2b.weekly, '#22d3ee', `${p.name}未来 8 周可供量`)}<div class="xs muted">W1 = ${weekStart} 周 · W8 = ${addDays(weekStart, 49)} 周</div></div>`).join('')}</div>
+    <div class="weeks-grid">${products.map(p => `<div class="card weeks-card"><div class="row"><b>${esc(p.name)}</b><span class="mono xs">${fmt(p.b2b.weekly.reduce((s, v) => s + v, 0))} kg</span></div>${weekBars(p.b2b.weekly, '#0e7490', `${p.name}未来 8 周可供量`)}<div class="xs muted">W1 = ${weekStart} 周 · W8 = ${addDays(weekStart, 49)} 周</div></div>`).join('')}</div>
   </section>
 
   <section class="section">

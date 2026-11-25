@@ -378,10 +378,10 @@ export const inPond = [
 export const platformStats = { sensorsOnline: 128, batchesInPond: 23, tracedBatches: 186, samplesToday: 46080 };
 
 export const metricInfo: Record<Metric, { label: string; unit: string; color: string }> = {
-  do: { label: '溶解氧', unit: 'mg/L', color: '#22d3ee' },
-  temp: { label: '水温', unit: '℃', color: '#fbbf24' },
-  ph: { label: 'pH', unit: '', color: '#a78bfa' },
-  nh3: { label: '氨氮', unit: 'mg/L', color: '#34d399' },
+  do: { label: '溶解氧', unit: 'mg/L', color: '#0e7490' },
+  temp: { label: '水温', unit: '℃', color: '#c2410c' },
+  ph: { label: 'pH', unit: '', color: '#6d28d9' },
+  nh3: { label: '氨氮', unit: 'mg/L', color: '#15803d' },
 };
 /** 适宜区间（演示），用于图表底带与达标率计算；不代表国家标准限值。 */
 export function metricRange(metric: Metric, water: Water): [number, number] {

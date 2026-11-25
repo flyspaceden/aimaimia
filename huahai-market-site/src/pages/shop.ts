@@ -66,7 +66,7 @@ export function productPage(id: string): string {
     </ol>
     <div class="ai-box">${icon('spark')}<div><b>AI 解读</b><p>${esc(ai[2]!.a)}</p></div></div>
     <div class="kpis">
-      <div class="kpi">${ring(traceCompleteness(b), '#34d399', '溯源完整度')}<span>溯源完整度</span></div>
+      <div class="kpi">${ring(traceCompleteness(b), '#15803d', '溯源完整度')}<span>溯源完整度</span></div>
       <div class="kpi">${ring(doRate, metricInfo.do.color, '溶氧达标率')}<span>溶氧达标率</span></div>
       <div class="kpi"><b class="mono">${cultureDays(b)}</b><span>养殖天数</span></div>
       <div class="kpi"><b class="mono">${(totalFeedKg(b) / 1000).toFixed(1)} t</b><span>累计投喂</span></div>

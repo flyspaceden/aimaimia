@@ -26,7 +26,7 @@
 
 ## 2026-11-24 AI 农贸市场产销溯源演示版升级
 
-- [x] 用户确认：先用演示数据展示“物联网/确权小程序 → AI 农贸市场”的产销数据链，C 端与 B 端都做，只展示 IoT 已有的数据类型（用药/施肥/称重曲线暂不展示），UI 现代化、有科技感。[设计](docs/superpowers/specs/2026-11-24-huahai-market-trace-demo-design.md) · [计划](docs/superpowers/plans/2026-11-24-huahai-market-trace-demo.md)。
+- [x] 用户确认：先用演示数据展示“物联网/确权小程序 → AI 农贸市场”的产销数据链，C 端与 B 端都做，只展示 IoT 已有的数据类型（用药/施肥/称重曲线暂不展示），UI 现代化、有科技感；同日改定为浅色（沿用官网绿白配色）。[设计](docs/superpowers/specs/2026-11-24-huahai-market-trace-demo-design.md) · [计划](docs/superpowers/plans/2026-11-24-huahai-market-trace-demo.md)。
 - [x] 独立 worktree（分支 `claude/market-trace-demo-20261124`）重写 `huahai-market-site/`：首页、买好货、商品详情、批次溯源档案、产地基地、产地采购、交易工作台、购物车与演示下单、AI 溯源助手。
 - [x] 6 项单元测试与 8 组浏览器交互检查通过（375/768/1024/1440 无横向溢出，无控制台错误与外部请求）。
 - [ ] 用户本地预览确认视觉与内容。

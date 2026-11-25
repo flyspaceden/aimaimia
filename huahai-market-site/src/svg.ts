@@ -58,12 +58,12 @@ const LOOKS: Record<Exclude<ArtKind, 'shrimp'>, Look> = {
 let artSeq = 0;
 export function fishArt(kind: ArtKind, label: string): string {
   const id = `art${++artSeq}`;
-  const bg = `<defs><radialGradient id="${id}g" cx="50%" cy="45%" r="65%"><stop offset="0" stop-color="#0e3a3f"/><stop offset="1" stop-color="#06121f"/></radialGradient>
-    <pattern id="${id}p" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M16 0H0V16" fill="none" stroke="#22d3ee" stroke-opacity=".08"/></pattern>
+  const bg = `<defs><radialGradient id="${id}g" cx="50%" cy="45%" r="65%"><stop offset="0" stop-color="#e3f3ea"/><stop offset="1" stop-color="#f7fbf9"/></radialGradient>
+    <pattern id="${id}p" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M16 0H0V16" fill="none" stroke="#15803d" stroke-opacity=".08"/></pattern>
     <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${kind === 'shrimp' ? '#fda4af' : LOOKS[kind].b}"/><stop offset=".55" stop-color="${kind === 'shrimp' ? '#fecdd3' : LOOKS[kind].a}"/><stop offset="1" stop-color="#ffffff"/></linearGradient></defs>
     <rect width="320" height="200" fill="url(#${id}g)"/><rect width="320" height="200" fill="url(#${id}p)"/>
-    <circle cx="160" cy="100" r="78" fill="none" stroke="#22d3ee" stroke-opacity=".18" stroke-dasharray="2 6"/>
-    <path d="M18 168c40-10 80 10 120 0s80-10 164 2" fill="none" stroke="#34d399" stroke-opacity=".25"/>`;
+    <circle cx="160" cy="100" r="78" fill="none" stroke="#0e7490" stroke-opacity=".28" stroke-dasharray="2 6"/>
+    <path d="M18 168c40-10 80 10 120 0s80-10 164 2" fill="none" stroke="#15803d" stroke-opacity=".3"/>`;
   const body = kind === 'shrimp' ? shrimp(id) : fish(id, LOOKS[kind]);
   return `<svg class="art" viewBox="0 0 320 200" role="img" aria-label="${label}（示意插画）">${bg}${body}</svg>`;
 }
@@ -79,7 +79,7 @@ function fish(id: string, k: Look): string {
   if (k.spots) for (let i = 0; i < 22; i++) marks += `<circle cx="${x0 + 45 + (i * 37) % 150}" cy="${cy - H * 0.55 + ((i * 23) % Math.round(H * 1.1))}" r="${2.5 + (i % 3)}" fill="${k.b}" fill-opacity=".45"/>`;
   return `<g class="glow">
     <path d="${dorsal}" fill="${k.fin}" fill-opacity=".85"/><path d="${ventral}" fill="${k.fin}" fill-opacity=".75"/>
-    <path d="${outline}" fill="url(#${id}b)" stroke="#a5f3fc" stroke-opacity=".7" stroke-width="1.4"/>
+    <path d="${outline}" fill="url(#${id}b)" stroke="#64748b" stroke-opacity=".65" stroke-width="1.4"/>
     <clipPath id="${id}c"><path d="${outline}"/></clipPath><g clip-path="url(#${id}c)">${marks}
       <path d="M${x0 + 30},${cy + H * 0.15} C${x0 + 90},${cy + H * 0.35} ${xt - 40},${cy + H * 0.2} ${xt},${cy + H * 0.1}" stroke="#fff" stroke-opacity=".5" fill="none"/></g>
     <path d="M${x0 + 38},${cy - H * 0.55} q10 ${H * 0.55} 0 ${H * 1.1}" stroke="${k.b}" stroke-opacity=".6" fill="none" stroke-width="1.6"/>
@@ -158,14 +158,14 @@ export function demoCode(code: string): string {
     h = (h * 1103515245 + 12345) >>> 0;
     if ((h >>> 16) & 1) cells.push(`<rect x="${c}" y="${r}" width="1" height="1"/>`);
   }
-  const f = (x: number, y: number) => `<rect x="${x + .5}" y="${y + .5}" width="6" height="6" fill="none" stroke="#06121f"/><rect x="${x + 2}" y="${y + 2}" width="3" height="3"/>`;
-  return `<svg class="qr" viewBox="-1 -1 23 23" role="img" aria-label="批次 ${code} 演示码（示意，不可扫描）"><rect x="-1" y="-1" width="23" height="23" fill="#fff" rx="1"/><g fill="#06121f">${cells.join('')}${f(0, 0)}${f(n - 7, 0)}${f(0, n - 7)}</g></svg>`;
+  const f = (x: number, y: number) => `<rect x="${x + .5}" y="${y + .5}" width="6" height="6" fill="none" stroke="#183b2a"/><rect x="${x + 2}" y="${y + 2}" width="3" height="3"/>`;
+  return `<svg class="qr" viewBox="-1 -1 23 23" role="img" aria-label="批次 ${code} 演示码（示意，不可扫描）"><rect x="-1" y="-1" width="23" height="23" fill="#fff" rx="1"/><g fill="#183b2a">${cells.join('')}${f(0, 0)}${f(n - 7, 0)}${f(0, n - 7)}</g></svg>`;
 }
 /** 基地塘口分布示意图。 */
 export function pondMap(list: readonly Pond[], selected: string, readings: Record<string, Reading>): string {
   const gid = `pm${++artSeq}`;
   return `<svg class="pondmap" viewBox="0 0 100 100" role="img" aria-label="塘口分布示意图，共 ${list.length} 口塘">
-    <defs><pattern id="${gid}" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M5 0H0V5" fill="none" stroke="#22d3ee" stroke-opacity=".07" stroke-width=".3"/></pattern></defs>
+    <defs><pattern id="${gid}" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M5 0H0V5" fill="none" stroke="#15803d" stroke-opacity=".1" stroke-width=".3"/></pattern></defs>
     <rect width="100" height="100" fill="url(#${gid})"/>
     ${list.map(p => {
       const on = p.id === selected, r = readings[p.id];
