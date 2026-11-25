@@ -50,7 +50,8 @@ jobs:
   full-e2e:
     needs: scope
     if: needs.scope.outputs.mode == 'full'
-    runs-on: ubuntu-latest
+    # ubuntu-latest 已升级到 26.04，Playwright 1.59.1 不支持在其上安装 chromium；固定到已验证的 24.04。
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     services:
