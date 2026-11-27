@@ -2,7 +2,7 @@
 """官网服务器：从物联网服务器内网取回农贸市场公开数据文件（数据契约 v1），校验通过才原子替换。
 
 只用标准库，兼容 Python 3.6。校验不过或取不到时保留旧文件；取消公开的塘的曲线文件会被删除。
-用法：fetch_live.py --source http://<内网地址>/market-live/v1/ --host market-live.internal --dest /var/www/huahai-market-live/v1
+用法：fetch_live.py --source http://<内网地址>:<端口>/market-live/v1/ [--host <Host 名>] --dest /var/www/huahai-market-live/v1
 """
 import argparse
 import datetime

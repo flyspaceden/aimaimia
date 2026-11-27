@@ -425,7 +425,7 @@ def test_main_hides_exception_text(tmp_path, monkeypatch, capsys):         # ser
 **Interfaces:**
 - 服务单元：整份照 `deploy/farm/huahai-farm-quality-reports.service.example` 的加固项，只改四处——`Description`；`EnvironmentFile=/etc/huahai-iot-admin/farm-market-export.env`；`ExecStart=/opt/huahai-iot-platform/.venv/bin/python -m huahai_iot_farm.market_export --company-id ${HUAI_MARKET_COMPANY_ID} --output-dir /var/lib/huahai-market-public/v1 --interval-seconds ${HUAI_FARM_TASK_INTERVAL_SECONDS} --execute`；新增 `ReadWritePaths=/var/lib/huahai-market-public`。
 - 环境文件样例：`HUAI_FARM_TASK_INTERVAL_SECONDS=300`、`HUAI_MARKET_COMPANY_ID=<公司编号>`、可选的 `HUAI_MARKET_COMPANY_NAME=<对外显示的公司名>`，只写占位。
-- nginx（新文件，不改现有任何配置；与现有内网转发共用同一个监听地址，靠 Host 名区分）：
+- nginx（新文件，不改现有任何配置）。**审查后改为独立监听 `172.17.228.115:18082`**：与现有中继共用 18081 时 Host 不匹配的请求可能落到新站点，把后台 API 转发打成 404。下面代码块是初稿，以物联网仓库里的样例文件为准：
 
 ```nginx
 server {
