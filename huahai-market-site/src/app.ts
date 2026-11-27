@@ -2,10 +2,10 @@ import { parseRoute, routeHash, routeTitles, isSort, type Route } from './model.
 import { demands, findBatch, findProduct, liveReading, readingText, platformStats, pondsOfBase, findBase, type Metric } from './data.js';
 import { Assistant } from './assistant.js';
 import { cart, orders, addToCart, setQty, cartCount, esc } from './ui.js';
-import { homePage } from './pages/home.js';
+import { homePage, demoHeroPanel } from './pages/home.js';
 import { shopPage, productPage } from './pages/shop.js';
 import { tracePage, traceSearchPage, waterBlock } from './pages/trace.js';
-import { basesPage, basePage } from './pages/bases.js';
+import { basesPage, basesGrid, basePage } from './pages/bases.js';
 import { sourcePage, workPage } from './pages/source.js';
 import { cartPage, checkoutPage, orderPage, totals } from './pages/cart.js';
 
@@ -42,7 +42,7 @@ function render(focus: boolean): void {
     case 'shop': html = shopPage(r); break;
     case 'product': html = productPage(r.id); break;
     case 'trace': html = r.id ? tracePage(r.id) : traceSearchPage(); break;
-    case 'bases': html = basesPage(); break;
+    case 'bases': html = basesPage(basesGrid({ status: 'loading' }, Date.now())); break;
     case 'base': {
       const list = pondsOfBase(r.id);
       if (!list.some(p => p.id === selectedPond)) selectedPond = list[0]?.id ?? '';
@@ -53,7 +53,7 @@ function render(focus: boolean): void {
     case 'cart': html = cartPage(); break;
     case 'checkout': html = checkoutPage(); break;
     case 'order': html = orderPage(r.id); break;
-    default: html = homePage();
+    default: html = homePage(demoHeroPanel());
   }
   view.innerHTML = html;
   const product = r.name === 'product' ? findProduct(r.id) : undefined;

@@ -1,9 +1,25 @@
 import { aiAnswers, bases, batches, company, platformStats, products, pondsOfBase, findBatch } from '../data.js';
 import { fmt } from '../model.js';
 import { icon } from '../svg.js';
-import { esc, href, productCard } from '../ui.js';
+import { demoTag, esc, href, productCard } from '../ui.js';
 
-export function homePage(): string {
+/** 首页右侧的演示面板（取不到真实数据时显示）。 */
+export function demoHeroPanel(): string {
+  return `<div class="hero-panel card glass" data-live-slot="home" aria-label="平台实时数据（演示）">
+      <div class="row"><span class="live-dot"></span><b>平台实时数据</b><span class="tag tag-demo">演示</span></div>
+      <div class="stat-grid">
+        <div class="stat"><span class="stat-v mono" data-counter="samples">${fmt(platformStats.samplesToday)}</span><span class="stat-l">今日采集数据条</span></div>
+        <div class="stat"><span class="stat-v mono">${platformStats.sensorsOnline}</span><span class="stat-l">在线探头</span></div>
+        <div class="stat"><span class="stat-v mono">${platformStats.batchesInPond}</span><span class="stat-l">在塘批次</span></div>
+        <div class="stat"><span class="stat-v mono">${platformStats.tracedBatches}</span><span class="stat-l">已建档批次</span></div>
+      </div>
+      <div class="hero-feed" aria-live="off">
+        ${bases.map(b => `<a class="feed-row" href="${href('base', b.id)}"><span>${icon('pin', 'ic ic-xs')}${esc(b.name)}</span><span class="mono" data-live-base="${b.id}">${pondsOfBase(b.id).length} 口塘 · ${b.sensors} 探头</span></a>`).join('')}
+      </div>
+    </div>`;
+}
+
+export function homePage(heroPanel: string): string {
   const featured = products.slice(0, 4);
   const sample = findBatch('HH-YJ-2605-02')!;
   const sampleLab = sample.labs.find(l => l.category.includes('渔药'))!;
@@ -28,18 +44,7 @@ export function homePage(): string {
       </form>
       <div class="hero-cta"><a class="btn btn-ghost" href="${href('shop')}">${icon('cart')}去买好货</a><a class="btn btn-ghost" href="${href('source')}">${icon('truck')}企业产地采购</a></div>
     </div>
-    <div class="hero-panel card glass" aria-label="平台实时数据（演示）">
-      <div class="row"><span class="live-dot"></span><b>平台实时数据</b><span class="tag tag-demo">演示</span></div>
-      <div class="stat-grid">
-        <div class="stat"><span class="stat-v mono" data-counter="samples">${fmt(platformStats.samplesToday)}</span><span class="stat-l">今日采集数据条</span></div>
-        <div class="stat"><span class="stat-v mono">${platformStats.sensorsOnline}</span><span class="stat-l">在线探头</span></div>
-        <div class="stat"><span class="stat-v mono">${platformStats.batchesInPond}</span><span class="stat-l">在塘批次</span></div>
-        <div class="stat"><span class="stat-v mono">${platformStats.tracedBatches}</span><span class="stat-l">已建档批次</span></div>
-      </div>
-      <div class="hero-feed" aria-live="off">
-        ${bases.map(b => `<a class="feed-row" href="${href('base', b.id)}"><span>${icon('pin', 'ic ic-xs')}${esc(b.name)}</span><span class="mono" data-live-base="${b.id}">${pondsOfBase(b.id).length} 口塘 · ${b.sensors} 探头</span></a>`).join('')}
-      </div>
-    </div>
+    ${heroPanel}
   </section>
 
   <section class="section">
@@ -76,7 +81,7 @@ export function homePage(): string {
   <section class="section">
     <div class="sec-head"><div><div class="kicker">产地</div><h2>${esc(company.short)}养殖基地</h2></div><a class="link" href="${href('bases')}">全部基地 ${icon('arrow', 'ic ic-xs')}</a></div>
     <div class="base-grid">${bases.map(b => `<a class="base-card card" href="${href('base', b.id)}">
-      <div class="row"><b>${esc(b.name)}</b><span class="tag">${b.water === 'marine' ? '海水' : '淡水'}</span></div>
+      <div class="row"><b>${esc(b.name)}</b><span class="tag">${b.water === 'marine' ? '海水' : '淡水'}</span>${demoTag()}</div>
       <p class="muted sm">${esc(b.intro)}</p>
       <div class="base-meta mono"><span>${esc(b.region)}</span><span>${esc(b.area)}</span><span>${b.sensors} 探头</span></div></a>`).join('')}</div>
   </section>`;
