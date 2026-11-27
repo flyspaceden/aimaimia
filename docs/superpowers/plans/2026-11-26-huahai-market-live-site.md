@@ -488,8 +488,8 @@ INDEX_MAX = 262144
 POND_MAX = 1048576
 def clean_index(raw):            # -> dict；违反契约任何一条（包括多出任何键）抛 ValueError
 def clean_pond(raw, code, keys): # -> dict；keys 是索引里这口塘的读数 key 集合；series 里出现集合之外的 key 也抛 ValueError
-def run(source, dest):           # -> int 退出码；source 是以 / 结尾的 URL 前缀（http:// 或测试用的 file://），dest 是已存在的目录
-def main(argv=None):             # 参数 --source、--dest，都必填
+def run(source, dest, host=None): # -> int 退出码；source 是以 / 结尾的 URL 前缀（http:// 或测试用的 file://），dest 是已存在的目录；host 非空时作为 Host 请求头发出
+def main(argv=None):             # 参数 --source、--dest 必填，--host 可选
 ```
 
 - `run` 的规定：
@@ -517,7 +517,7 @@ def main(argv=None):             # 参数 --source、--dest，都必填
     location /live/ { return 404; }
 ```
 
-- 定时器：`OnCalendar=*:1/5`（每 5 分钟、错开 1 分钟，排在物联网导出之后），`AccuracySec=10s`。服务单元 `Type=oneshot`，`User=huahai-live`，`EnvironmentFile=/etc/huahai-market-live.env`（内含 `LIVE_SOURCE=`），`ExecStart=/usr/bin/python3 /opt/huahai-market-live/fetch_live.py --source ${LIVE_SOURCE} --dest /var/www/huahai-market-live/v1`，并加 `NoNewPrivileges=yes`、`ProtectSystem=strict`、`ProtectHome=yes`、`PrivateTmp=yes`、`ReadWritePaths=/var/www/huahai-market-live/v1`。`huahai-market-live.env.example` 里 `LIVE_SOURCE` 只写占位说明，真实内网地址以物联网侧计划定下的为准，不写进仓库。
+- 定时器：`OnCalendar=*:1/5`（每 5 分钟、错开 1 分钟，排在物联网导出之后），`AccuracySec=10s`。服务单元 `Type=oneshot`，`User=huahai-live`，`EnvironmentFile=/etc/huahai-market-live.env`（内含 `LIVE_SOURCE=`、`LIVE_HOST=`），`ExecStart=/usr/bin/python3 /opt/huahai-market-live/fetch_live.py --source ${LIVE_SOURCE} --host ${LIVE_HOST} --dest /var/www/huahai-market-live/v1`，并加 `NoNewPrivileges=yes`、`ProtectSystem=strict`、`ProtectHome=yes`、`PrivateTmp=yes`、`ReadWritePaths=/var/www/huahai-market-live/v1`。`huahai-market-live.env.example` 里两项只写占位说明；真实值以物联网侧计划为准（内网地址加 `/market-live/v1/`，`LIVE_HOST=market-live.internal`），不写进仓库。物联网服务器按 Host 名区分这个只读站点，所以取回时必须带这个请求头。
 
 - [ ] **Step 1: 写失败的测试** `deploy/live-fetch/test_fetch_live.py`（`unittest`；源目录和目标目录都用 `tempfile.TemporaryDirectory`，`source` 用 `pathlib.Path(src).as_uri() + '/'`；样例从 `../../tests/fixtures/live-v1/` 读）
 
@@ -534,6 +534,7 @@ class FetchLiveTest(unittest.TestCase):
     def test_unpublished_pond_file_removed(self):       # dest 预先放 pond-yx-07.json 和 notes.txt，索引里只有 yx-00 → pond-yx-07.json 被删，notes.txt 还在
     def test_dest_missing(self):                        # dest 指向不存在的目录 → 返回 1，目录没被创建
     def test_nan_rejected(self):                        # 文件内容含 NaN / Infinity → 返回 1
+    def test_host_header_sent(self):                    # 本机起一个 http.server 线程提供样例并记录请求头；run(url, dest, host='market-live.internal') 返回 0 且每个请求的 Host 都是它
 ```
 
   以及 `tests/deploy.test.mjs`：
