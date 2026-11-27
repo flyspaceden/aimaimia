@@ -372,7 +372,8 @@ textarea { padding: 10px 12px; min-height: 96px; resize: vertical; }
 .rd-time { color: var(--muted); }
 .rd-stale { background: var(--panel2); } .rd-stale b { color: var(--muted); } .rd-stale .rd-time { color: var(--amber); font-weight: 600; }
 .live-banner { margin: 0 0 16px; }
-.live-panel .live-tiles { grid-template-columns: 1fr 1fr; }
+.live-panel .live-tiles, .live-base .live-tiles { grid-template-columns: 1fr 1fr; }
+.live-base { align-content: start; } .live-base .live-tiles { margin: 0; }
 .live-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .live-place { margin-bottom: 16px; display: grid; gap: 10px; }
 .live-ponds { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }

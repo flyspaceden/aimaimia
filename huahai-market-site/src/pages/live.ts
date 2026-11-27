@@ -19,7 +19,7 @@ const banner = (index: LiveIndex, now: number) => isFeedStale(index, now)
   ? `<div class="notice notice-warn live-banner" role="status">${icon('alert', 'ic ic-sm')}实时数据暂时中断，以下为 ${stamp(index.generated_at, now)} 的数据</div>` : '';
 const updated = (index: LiveIndex, now: number) => `<span>更新于 ${stamp(index.generated_at, now)}</span>`;
 const place = (b: LiveBase) => [b.province, b.city, b.district].filter(Boolean).join(' ');
-const area = (p: LivePond) => (p.area_value === null ? '' : `${valueText(p.area_value)} ${p.area_unit}`.trim());
+const area = (p: LivePond) => (p.area_value === null ? '' : `${Math.round(p.area_value * 100) / 100} ${p.area_unit}`.trim());
 
 function tile(r: LiveReading, now: number): string {
   const state = readingState(r, now);
@@ -51,6 +51,7 @@ export function liveBaseCards(feed: LiveFeed, now: number): string {
   return feed.index.bases.map(b => `<a class="base-card card glass live-base" href="${href('live', b.code)}">
       <div class="row"><b>${esc(b.name)}</b>${liveTag(stale)}</div>
       <p class="muted sm">${esc(place(b) || feed.index.company.name)}</p>
+      ${(() => { const p = b.ponds.find(x => withValue(x).length); return p ? `<div class="xs muted">${esc(p.name)} 最新读数</div>${tiles(withValue(p).slice(0, 4), now)}` : ''; })()}
       <div class="base-meta mono"><span>${b.ponds.length} 口公开塘</span><span>探头自动采集</span></div>
       <span class="link">查看实时数据 ${icon('arrow', 'ic ic-xs')}</span></a>`).join('');
 }

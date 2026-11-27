@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { parseRoute, routeHash, escapeHtml } from '../dist/assets/model.js';
 import { products, batches, findBatch, findProduct, findPond, findBase, waterSeries, complianceRate, metricRange, totalFeedKg, traceCompleteness, aiAnswers, liveReading, inPond } from '../dist/assets/data.js';
 
@@ -69,4 +70,16 @@ test('B 端周供货量不超过在塘存量，且预警日数值与预警记录
     assert.ok(point, `${b.code} ${a.date}`);
     assert.equal(point.value, Number(a.value.match(/\d+(\.\d+)?/)[0]));
   }
+});
+
+test('真实基地与塘口路由', () => {
+  assert.deepEqual([parseRoute('#pond/yx-00').name, parseRoute('#pond/yx-00').id], ['pond', 'yx-00']);
+  assert.deepEqual([parseRoute('#live/yx').name, parseRoute('#live/yx').id], ['live', 'yx']);
+  assert.equal(routeHash({ name: 'pond', id: 'yx-00' }), '#pond/yx-00');
+  assert.equal(parseRoute('#base/yj').name, 'base');
+});
+test('页面安全策略只允许请求本站，提示条不再说全部是示例', () => {
+  const html = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');
+  assert.match(html, /connect-src 'self';/); assert.equal(html.includes("connect-src 'none'"), false);
+  assert.match(html, /标有“实时数据”的是真实监测数据，其余为演示/); assert.equal(html.includes('均为示例'), false);
 });
