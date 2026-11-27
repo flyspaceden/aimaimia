@@ -15,6 +15,8 @@
 ## Global Constraints
 
 - 只读：导出进程不写任何业务表，不调用任何外部服务。
+- 不改共用文件：`runtime.py`、`task_scopes.py`、`runtime_tasks.py`、`service.py`、`repository.py`、`docs/DEPLOYMENT.md` 一律不动（锦鲤会话同时在改这些文件）；部署说明写进新文件 `docs/MARKET_PUBLIC_EXPORT_DEPLOYMENT_20261126.md`。本机测试库用独立容器 `huahai-market-pg16:55841`。
+- 部署不冲突：IoT 服务器代码按一个提交整目录部署，上线前必须确认线上当时的提交，并基于“线上提交 + 本分支”的合并结果部署，不得冲掉锦鲤会话已上线的代码。
 - 不改现有对象：不重定义 `farm.runtime_task_scopes`、`farm.ensure_runtime_task_actor`、`farm.iot_unit_telemetry`、`farm.overview_iot`，不碰历史投影契约清单里的函数（`sql/postgresql/farm/150*、159*、160*`），不改现有 nginx 配置文件和现有任务。
 - 迁移放 `sql/baseline/next/030_market_public_export.sql`，回退放 `sql/baseline/next/rollback/030_market_public_export_down.sql`，可重复执行，文件头按 `next/027` 的写法（中文说明、不涉及历史投影契约的声明、回退路径、`BEGIN; SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s';`）。合并时 030 若已被占用则顺延并同步改文档。
 - 输出只含数据契约 v1 的键。员工姓名、预警、养殖事件、设备序列号、盒子 / 通道 / 塘的内部编号、现场填写的探头名称一律不得出现在输出里。
@@ -286,7 +288,6 @@ def test_previous_file_handling(tmp_path):
 
 **Files:**
 - Modify: `src/huahai_iot_farm/market_export.py`
-- Modify: `src/huahai_iot_farm/runtime.py`（`provider_options` 的任务名单加 `"market-export"`，与 `"evaluate"` 一样直接返回 `{}`）
 - Test: `tests/farm/test_market_export.py`（追加）、`tests/farm/test_market_export_postgres.py`（追加）
 
 **Interfaces:**
@@ -345,9 +346,6 @@ def test_export_company_keeps_previous_series_when_a_query_fails(tmp_path, monke
 
 def test_export_company_registry_failure_leaves_files_untouched(tmp_path, monkeypatch):
     # 先成功导出一轮并记下两份文件的字节；再让 tx.one 对登记抛错 → export_company 抛出，两份文件字节不变。
-
-def test_runtime_accepts_market_export_task():
-    assert runtime.provider_options(task="market-export") == {}
 ```
 
   追加到 `tests/farm/test_market_export_postgres.py`（连本机库，沿用 Task 1 的 `world`；用 `FarmService(PostgresFarmRepository(database), private_storage_root=tmp_path, load_alert_provider_from_environment=False, load_alert_channels_from_environment=False)`，写法照 `tests/farm/test_koi_summary.py` 里的 `task_service`——该文件在别的分支上，照其构造方式即可）：
@@ -369,9 +367,9 @@ def test_export_once_for_company_without_task_identity(database, world, tmp_path
 ```
 
 - [ ] **Step 2: 运行确认失败** — `.venv/bin/python -m pytest tests/farm/test_market_export.py tests/farm/test_market_export_postgres.py -q`。
-- [ ] **Step 3: 实现。** 核对 `runtime.build_farm_service` 里其余用到 `task` 的地方不会因为新名字报错；核对 `farm.iot_unit_telemetry` 在 `latest_only=false` 时返回的 jsonb 形状（对照 `src/huahai_iot_admin/farm_read.py:192-200` 的用法），`read_chunk` 统一返回条目列表。
+- [ ] **Step 3: 实现。**核对 `farm.iot_unit_telemetry` 在 `latest_only=false` 时返回的 jsonb 形状（对照 `src/huahai_iot_admin/farm_read.py:192-200` 的用法），`read_chunk` 统一返回条目列表。
 - [ ] **Step 4: 运行确认通过** — 同上命令。
-- [ ] **Step 5: 提交** — `git add src/huahai_iot_farm/market_export.py src/huahai_iot_farm/runtime.py tests/farm/test_market_export.py tests/farm/test_market_export_postgres.py && git commit -m "feat(market-export): 以系统任务身份取数并完成一轮导出"`
+- [ ] **Step 5: 提交** — `git add src/huahai_iot_farm/market_export.py tests/farm/test_market_export.py tests/farm/test_market_export_postgres.py && git commit -m "feat(market-export): 以系统任务身份取数并完成一轮导出"`
 
 ### Task 4: 命令行入口与常驻循环
 
@@ -395,7 +393,7 @@ def main(argv=None, *, service_factory=None) -> int
   - `--execute`（不带 `--once`）：`run_forever`，每轮结束 `stopping.wait(interval_seconds)`；单轮异常只记日志、不退出；停止信号沿用 `runtime_tasks._stop_signals`。
   - `--print`：导出到临时目录后把 `index.json` 打到标准输出并删掉临时目录，不碰 `--output-dir`（给用户过目公开清单用）。
   - `--candidates`：把 `candidates` 的结果按行打到标准输出，不写文件。
-  - 服务用 `(service_factory or runtime.build_farm_service)(load_alert_provider_from_environment=False, task="market-export")` 建；返回 `None`（农事未启用）时打印原因并返回 1。
+  - 服务用 `(service_factory or runtime.build_farm_service)(load_alert_provider_from_environment=False, task="evaluate")` 建（借用 `evaluate` 的“不装任何外呼”配置；**不改 `runtime.py`**，避免与锦鲤分支改同一行任务名单）；返回 `None`（农事未启用）时打印原因并返回 1。
   - `--company-name` 不传时取环境变量 `HUAI_MARKET_COMPANY_NAME`，再没有就用系统里的公司名。
   - 任何出错路径都不打印异常原文（可能含连接串），只打印固定中文提示，返回 1。
 
@@ -473,11 +471,11 @@ def test_examples_contain_no_real_identifiers():
 ### Task 6: 文档、与官网侧对接核对、收尾
 
 **Files:**
-- Modify: `docs/DEPLOYMENT.md`
+- Create: `docs/MARKET_PUBLIC_EXPORT_DEPLOYMENT_20261126.md`
 - Modify: `docs/README.md`
 
-- [ ] **Step 1: `docs/DEPLOYMENT.md` 新增“农贸市场公开数据导出”一节**，写清：
-  - 迁移 030 的执行命令（同文档里 `next/005` 的写法）与回退命令；迁移只加表和函数，不动现有对象。
+- [ ] **Step 1: 新建 `docs/MARKET_PUBLIC_EXPORT_DEPLOYMENT_20261126.md`**，写清：
+  - 迁移 030 的执行命令（同 `docs/DEPLOYMENT.md` 里 `next/005` 的写法）与回退命令；迁移只加表和函数，不动现有对象。
   - 目录：`install -d -o huahai-iot-admin -g huahai-iot-admin -m 0755 /var/lib/huahai-market-public/v1`。
   - 登记步骤：`--candidates <塘>` 列出当前读数 → 拟公开清单（公开标签重新拟）→ **给用户过目** → 属主执行登记 SQL → `--execute --print` 再给用户看一遍最终公开内容。本期登记：阳江永兴基地（基地代号 `yx`）测试1塘，公开名“永兴 0 号塘”，塘代号 `yx-00`。
   - 安装单元并启动；**首轮要读满 30 天，可能跑几分钟**，之后每轮只补新段，每天 UTC 零点后的第一轮整体重读一次。
