@@ -30,7 +30,7 @@
 - `docs/superpowers/specs/2026-11-24-huahai-market-trace-demo-design.md` — AI 农贸市场产销溯源演示版设计（页面清单、演示数据范围、只展示 IoT 已有数据类型、视觉方向，**农贸市场溯源演示权威来源**）；配套计划 `docs/superpowers/plans/2026-11-24-huahai-market-trace-demo.md`。
 - `docs/superpowers/specs/2026-11-26-huahai-market-live-environment-design.md` — AI 农贸市场真实养殖环境数据接入设计（第一步：只公开已登记塘口的水质读数与曲线；物联网定时公开档案 → 官网服务器取回 → 网页只读本站文件；公开/不公开范围、数据格式、过期与失败表现，**农贸市场真实数据接入权威来源；2026-11-26 已定稿、未实施**）。
 - `docs/superpowers/plans/2026-11-26-huahai-market-live-site.md` — 真实养殖环境数据接入实施计划·网站与官网服务器侧（数据契约 v1、解析与过期判断、真实基地页/塘口页、60 秒刷新、官网服务器取回脚本与 `/live/` nginx 配置，7 个任务，**农贸市场真实数据网站侧实施排程；未实施**）。
-- `docs/superpowers/plans/2026-11-26-huahai-market-live-iot-export.md` — 真实养殖环境数据接入实施计划·物联网平台导出侧（在物联网仓库执行：迁移 030 公开登记表与只读函数、`market_export` 导出进程、读数取舍规则、曲线分段增量读取、内网只读站点与登记步骤，7 个任务，**农贸市场真实数据物联网侧实施排程；未实施**）。
+- `docs/superpowers/plans/2026-11-26-huahai-market-live-iot-export.md` — 真实养殖环境数据接入实施计划·物联网平台导出侧（在物联网仓库执行：迁移 060 公开登记表与只读函数、`market_export` 导出进程、读数取舍规则、曲线分段增量读取、内网只读站点与登记步骤，7 个任务，**农贸市场真实数据物联网侧实施排程；未实施**）。
 
 - `docs/features/huahai-multilingual.md` — 华海企业官网 8 页十语切换、语言面板、知识产权证书图片及页数边界、静态译文维护、RTL/响应式、法律原文边界与验证/发布规则；仅覆盖企业官网，不替代 App 或 IoT 文档。
 - `docs/operations/fund-ledgers-staging-20260909.md` — 基金账本及三页体验优化的 staging-next 发布版本、CI 与实际页面验收记录（本次基金测试发布证据）

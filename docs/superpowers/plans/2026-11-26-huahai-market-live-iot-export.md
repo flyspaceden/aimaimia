@@ -10,7 +10,7 @@
 
 **Spec:** 爱买买仓库 `docs/superpowers/specs/2026-11-26-huahai-market-live-environment-design.md`（设计）与 `docs/superpowers/plans/2026-11-26-huahai-market-live-site.md` 里的“数据契约 v1”（输出格式的唯一定义，本计划逐字遵守）。
 
-**仓库与基线：** 物联网平台仓库（`/Users/jamesheden/Desktop/华海农业物联网/`），从线上基线 `a90ce31` 新开工作目录和分支，不在别的会话的工作目录里改。本计划文件存放在爱买买仓库，Task 0 会把它复制进物联网仓库。
+**仓库与基线：** 物联网平台仓库（`/Users/jamesheden/Desktop/华海农业物联网/`），从线上版本 `9bcf7cb`（锦鲤通道 2026-11-27 已上线：后端 3c998f8 + 后台网页修复 9bcf7cb，迁移 next/040–045 已在生产执行）新开工作目录和分支。迁移用 060：线上最高 045，锦鲤会话下一个用 046，留出空间；`live_test_db.sh` 按文件名顺序套用，060 排在最后，与生产执行顺序一致，不在别的会话的工作目录里改。本计划文件存放在爱买买仓库，Task 0 会把它复制进物联网仓库。
 
 ## Global Constraints
 
@@ -18,7 +18,7 @@
 - 不改共用文件：`runtime.py`、`task_scopes.py`、`runtime_tasks.py`、`service.py`、`repository.py`、`docs/DEPLOYMENT.md` 一律不动（锦鲤会话同时在改这些文件）；部署说明写进新文件 `docs/MARKET_PUBLIC_EXPORT_DEPLOYMENT_20261126.md`。本机测试库用独立容器 `huahai-market-pg16:55841`。
 - 部署不冲突：IoT 服务器代码按一个提交整目录部署，上线前必须确认线上当时的提交，并基于“线上提交 + 本分支”的合并结果部署，不得冲掉锦鲤会话已上线的代码。
 - 不改现有对象：不重定义 `farm.runtime_task_scopes`、`farm.ensure_runtime_task_actor`、`farm.iot_unit_telemetry`、`farm.overview_iot`，不碰历史投影契约清单里的函数（`sql/postgresql/farm/150*、159*、160*`），不改现有 nginx 配置文件和现有任务。
-- 迁移放 `sql/baseline/next/030_market_public_export.sql`，回退放 `sql/baseline/next/rollback/030_market_public_export_down.sql`，可重复执行，文件头按 `next/027` 的写法（中文说明、不涉及历史投影契约的声明、回退路径、`BEGIN; SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s';`）。合并时 030 若已被占用则顺延并同步改文档。
+- 迁移放 `sql/baseline/next/060_market_public_export.sql`，回退放 `sql/baseline/next/rollback/060_market_public_export_down.sql`，可重复执行，文件头按 `next/027` 的写法（中文说明、不涉及历史投影契约的声明、回退路径、`BEGIN; SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s';`）。合并时 060 若已被占用则顺延并同步改文档。
 - 输出只含数据契约 v1 的键。员工姓名、预警、养殖事件、设备序列号、盒子 / 通道 / 塘的内部编号、现场填写的探头名称一律不得出现在输出里。
 - 读数取舍（用户已定）：**不看校准状态**。只导出来源为设备（`source_type` 为空或 `DEVICE`）的读数；质量为 `BAD`、`MISSING` 的不导出；`GOOD`、`SUSPECT`、空都导出（未校准的探头入库时默认就是 `SUSPECT`，不能挡）。
 - 数据契约 v1 只容纳一家公司：导出进程按启动参数里的公司编号运行，一次只导出一家。
@@ -44,16 +44,16 @@
 - Create: `docs/plans/MARKET_PUBLIC_EXPORT_PLAN_20261126.md`（本文件的副本）
 - Modify: `docs/README.md`（登记）
 
-- [ ] **Step 1:** 在物联网仓库主目录执行 `git worktree add ../huahai-iot-platform-market-export-20261126 -b claude/market-export a90ce31`，之后所有命令都在这个新目录里跑。按仓库 README 准备 `.venv`。
+- [ ] **Step 1:** 在物联网仓库主目录执行 `git worktree add ../huahai-iot-platform-market-export-20261126 -b claude/market-export 9bcf7cb`，之后所有命令都在这个新目录里跑。按仓库 README 准备 `.venv`。
 - [ ] **Step 2:** 起独立的本机测试库，不占用别的会话的容器：`HUAI_TEST_PG_NAME=huahai-market-pg16 HUAI_TEST_PG_PORT=55841 scripts/dev/live_test_db.sh up`。预期生成 `.local/farm-dev/owner-dsn`、`runtime-dsn`。
 - [ ] **Step 3:** 跑一个现有的库测试确认环境可用：`.venv/bin/python -m pytest tests/farm/test_task_scopes.py -q`，预期全部通过。
 - [ ] **Step 4:** 复制本计划为 `docs/plans/MARKET_PUBLIC_EXPORT_PLAN_20261126.md`，在 `docs/README.md` 的计划列表里登记一行；提交 `docs(market-export): 导出任务实施计划`。
 
-### Task 1: 迁移 030 —— 公开登记表与只读函数
+### Task 1: 迁移 060 —— 公开登记表与只读函数
 
 **Files:**
-- Create: `sql/baseline/next/030_market_public_export.sql`
-- Create: `sql/baseline/next/rollback/030_market_public_export_down.sql`
+- Create: `sql/baseline/next/060_market_public_export.sql`
+- Create: `sql/baseline/next/rollback/060_market_public_export_down.sql`
 - Test: `tests/farm/test_market_export_postgres.py`
 
 **Interfaces:**
@@ -138,9 +138,9 @@ def test_rollback_and_reapply(database):                 # 依次执行 down、u
 ```
 
 - [ ] **Step 2: 运行确认失败** — `.venv/bin/python -m pytest tests/farm/test_market_export_postgres.py -q`，预期：函数 / 表不存在。
-- [ ] **Step 3: 写迁移与回退文件**，并用属主套到本机库：`psql "$(cat .local/farm-dev/owner-dsn)" -X -v ON_ERROR_STOP=1 -f sql/baseline/next/030_market_public_export.sql`。函数以属主身份运行且表强制了行级权限，所以函数里读登记表靠的是会话里已设的 `farm.company()`；若属主读 `iot.stations` / `iot.organizations` 被拦，按 `farm.overview_iot` 读基地行的同样方式处理，以第一个测试里“基地名取到了”为准。
+- [ ] **Step 3: 写迁移与回退文件**，并用属主套到本机库：`psql "$(cat .local/farm-dev/owner-dsn)" -X -v ON_ERROR_STOP=1 -f sql/baseline/next/060_market_public_export.sql`。函数以属主身份运行且表强制了行级权限，所以函数里读登记表靠的是会话里已设的 `farm.company()`；若属主读 `iot.stations` / `iot.organizations` 被拦，按 `farm.overview_iot` 读基地行的同样方式处理，以第一个测试里“基地名取到了”为准。
 - [ ] **Step 4: 运行确认通过** — 同 Step 2 的命令。
-- [ ] **Step 5: 提交** — `git add sql/baseline/next/030_market_public_export.sql sql/baseline/next/rollback/030_market_public_export_down.sql tests/farm/test_market_export_postgres.py && git commit -m "feat(market-export): 公开登记表与只读登记函数（迁移 030）"`
+- [ ] **Step 5: 提交** — `git add sql/baseline/next/060_market_public_export.sql sql/baseline/next/rollback/060_market_public_export_down.sql tests/farm/test_market_export_postgres.py && git commit -m "feat(market-export): 公开登记表与只读登记函数（迁移 060）"`
 
 ### Task 2: 纯函数 —— 读数取舍、曲线合并、白名单拼装、原子写文件
 
@@ -475,7 +475,7 @@ def test_examples_contain_no_real_identifiers():
 - Modify: `docs/README.md`
 
 - [ ] **Step 1: 新建 `docs/MARKET_PUBLIC_EXPORT_DEPLOYMENT_20261126.md`**，写清：
-  - 迁移 030 的执行命令（同 `docs/DEPLOYMENT.md` 里 `next/005` 的写法）与回退命令；迁移只加表和函数，不动现有对象。
+  - 迁移 060 的执行命令（同 `docs/DEPLOYMENT.md` 里 `next/005` 的写法）与回退命令；迁移只加表和函数，不动现有对象。
   - 目录：`install -d -o huahai-iot-admin -g huahai-iot-admin -m 0755 /var/lib/huahai-market-public/v1`。
   - 登记步骤：`--candidates <塘>` 列出当前读数 → 拟公开清单（公开标签重新拟）→ **给用户过目** → 属主执行登记 SQL → `--execute --print` 再给用户看一遍最终公开内容。本期登记：阳江永兴基地（基地代号 `yx`）测试1塘，公开名“永兴 0 号塘”，塘代号 `yx-00`。
   - 安装单元并启动；**首轮要读满 30 天，可能跑几分钟**，之后每轮只补新段，每天 UTC 零点后的第一轮整体重读一次。
