@@ -4,11 +4,11 @@ import { icon } from '../svg.js';
 import { demoTag, esc, href, productCard } from '../ui.js';
 
 /** 首页右侧的演示面板（取不到真实数据时显示）。 */
-export function demoHeroPanel(): string {
+export function demoHeroPanel(samples = platformStats.samplesToday): string {
   return `<div class="hero-panel card glass" data-live-slot="home" aria-label="平台实时数据（演示）">
       <div class="row"><span class="live-dot"></span><b>平台实时数据</b><span class="tag tag-demo">演示</span></div>
       <div class="stat-grid">
-        <div class="stat"><span class="stat-v mono" data-counter="samples">${fmt(platformStats.samplesToday)}</span><span class="stat-l">今日采集数据条</span></div>
+        <div class="stat"><span class="stat-v mono" data-counter="samples">${fmt(samples)}</span><span class="stat-l">今日采集数据条</span></div>
         <div class="stat"><span class="stat-v mono">${platformStats.sensorsOnline}</span><span class="stat-l">在线探头</span></div>
         <div class="stat"><span class="stat-v mono">${platformStats.batchesInPond}</span><span class="stat-l">在塘批次</span></div>
         <div class="stat"><span class="stat-v mono">${platformStats.tracedBatches}</span><span class="stat-l">已建档批次</span></div>

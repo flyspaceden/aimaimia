@@ -5,6 +5,7 @@
 用法：fetch_live.py --source http://<内网地址>/market-live/v1/ --host market-live.internal --dest /var/www/huahai-market-live/v1
 """
 import argparse
+import datetime
 import json
 import os
 import re
@@ -14,11 +15,12 @@ import urllib.request
 INDEX_MAX = 262144
 POND_MAX = 1048576
 TIMEOUT = 10
-ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-BASE_CODE = re.compile(r"^[a-z0-9]{1,12}$")
-POND_CODE = re.compile(r"^[a-z0-9]{1,12}-[a-z0-9]{1,12}$")
-READING_KEY = re.compile(r"^r[0-9]{1,3}$")
-POND_FILE = re.compile(r"^pond-[a-z0-9]{1,12}-[a-z0-9]{1,12}\.json$")
+# 与网页 src/live.ts 的判断保持一致：整串匹配、只认 ASCII 数字（re.fullmatch + re.ASCII）。
+ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", re.ASCII)
+BASE_CODE = re.compile(r"[a-z0-9]{1,12}", re.ASCII)
+POND_CODE = re.compile(r"[a-z0-9]{1,12}-[a-z0-9]{1,12}", re.ASCII)
+READING_KEY = re.compile(r"r[0-9]{1,3}", re.ASCII)
+POND_FILE = re.compile(r"pond-[a-z0-9]{1,12}-[a-z0-9]{1,12}\.json", re.ASCII)
 RANGES = {"24h": 300, "7d": 200, "30d": 200}
 
 
@@ -31,19 +33,36 @@ def _keys(obj, keys, what):
     _need(isinstance(obj, dict) and set(obj) == set(keys), what + " 的键不符合契约")
 
 
+def _code(value, pattern, what):
+    _need(isinstance(value, str) and pattern.fullmatch(value) is not None, what + " 不对")
+    return value
+
+
 def _text(value, low, high, what):
     _need(isinstance(value, str) and low <= len(value) <= high, what + " 长度或类型不对")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError(what + " 含非法字符")
     return value
 
 
 def _number(value, what):
-    _need(isinstance(value, (int, float)) and not isinstance(value, bool)
-          and value == value and value not in (float("inf"), float("-inf")), what + " 不是有限数字")
+    _need(isinstance(value, (int, float)) and not isinstance(value, bool), what + " 不是数字")
+    try:
+        as_float = float(value)
+    except OverflowError:
+        raise ValueError(what + " 超出范围")
+    _need(as_float == as_float and as_float not in (float("inf"), float("-inf")), what + " 不是有限数字")
     return value
 
 
 def _time(value, what):
-    _need(isinstance(value, str) and ISO.match(value) is not None, what + " 时间格式不对")
+    _need(isinstance(value, str) and ISO.fullmatch(value) is not None, what + " 时间格式不对")
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        raise ValueError(what + " 不是有效时间")
     return value
 
 
@@ -68,7 +87,7 @@ def clean_index(raw):
     seen_base, seen_pond = set(), set()
     for base in _list(raw["bases"], 0, 20, "bases"):
         _keys(base, ("code", "name", "province", "city", "district", "address", "lat", "lng", "ponds"), "base")
-        _need(isinstance(base["code"], str) and BASE_CODE.match(base["code"]) is not None, "基地代号不对")
+        _code(base["code"], BASE_CODE, "基地代号")
         _need(base["code"] not in seen_base, "基地代号重复")
         seen_base.add(base["code"])
         _text(base["name"], 1, 60, "base.name")
@@ -79,7 +98,7 @@ def clean_index(raw):
         _coord(base["lng"], 180, "lng")
         for pond in _list(base["ponds"], 1, 50, "ponds"):
             _keys(pond, ("code", "name", "area_value", "area_unit", "readings"), "pond")
-            _need(isinstance(pond["code"], str) and POND_CODE.match(pond["code"]) is not None, "塘代号不对")
+            _code(pond["code"], POND_CODE, "塘代号")
             _need(pond["code"] not in seen_pond, "塘代号重复")
             seen_pond.add(pond["code"])
             _text(pond["name"], 1, 60, "pond.name")
@@ -89,7 +108,7 @@ def clean_index(raw):
             keys = set()
             for reading in _list(pond["readings"], 0, 24, "readings"):
                 _keys(reading, ("key", "label", "metric_name", "unit", "value", "observed_at"), "reading")
-                _need(isinstance(reading["key"], str) and READING_KEY.match(reading["key"]) is not None, "读数 key 不对")
+                _code(reading["key"], READING_KEY, "读数 key")
                 _need(reading["key"] not in keys, "读数 key 重复")
                 keys.add(reading["key"])
                 _text(reading["label"], 1, 40, "label")
@@ -123,7 +142,8 @@ def clean_pond(raw, code, keys):
             for point in _list(item["points"], 0, limit, "points"):
                 _need(isinstance(point, list) and len(point) == 2, "点格式不对")
                 moment, value = point
-                _need(isinstance(moment, int) and not isinstance(moment, bool), "点时间不是整数")
+                _need(isinstance(moment, (int, float)) and not isinstance(moment, bool)
+                      and float(_number(moment, "点时间")).is_integer(), "点时间不是整数")
                 _need(last is None or moment > last, "点时间未递增")
                 last = moment
                 _number(value, "点数值")
@@ -172,7 +192,7 @@ def run(source, dest, host=None):
     status = 0
     try:
         write(dest, "index.json", index)
-    except OSError as error:
+    except Exception as error:  # noqa: BLE001
         log("index.json 写入失败：" + str(error)[:200])
         return 1
     listed = pond_keys(index)
@@ -185,7 +205,7 @@ def run(source, dest, host=None):
             status = 1
     for name in os.listdir(dest):
         path = os.path.join(dest, name)
-        if POND_FILE.match(name) and name[5:-5] not in listed and os.path.isfile(path) and not os.path.islink(path):
+        if POND_FILE.fullmatch(name) and name[5:-5] not in listed and os.path.isfile(path) and not os.path.islink(path):
             os.remove(path)
     return status
 

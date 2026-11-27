@@ -80,6 +80,13 @@ class FetchLiveTest(unittest.TestCase):
             mutate(lambda r: r["bases"][0]["ponds"][0].update(readings=[dict(reading(r), key="r%d" % i) for i in range(25)])),
             mutate(lambda r: r["bases"].append(copy.deepcopy(r["bases"][0]))),
             mutate(lambda r: reading(r).update(value=True)),
+            # 以下几种网页（src/live.ts）也拒绝，取回脚本必须同样拒绝
+            mutate(lambda r: r["bases"][0].update(code="yx\n")),
+            mutate(lambda r: r.update(generated_at="2026-11-26T06:35:00Z\n")),
+            mutate(lambda r: r.update(generated_at="\u0662\u0660\u0662\u0666-11-26T06:35:00Z")),
+            mutate(lambda r: r.update(generated_at="2026-13-01T06:35:00Z")),
+            mutate(lambda r: reading(r).update(value=10 ** 400)),
+            mutate(lambda r: r["company"].update(name="\ud800x")),
         ]
         for raw in cases:
             with self.assertRaises(ValueError):

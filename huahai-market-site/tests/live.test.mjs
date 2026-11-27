@@ -92,3 +92,11 @@ test('时间曲线：断档处断开、平线和单点不出 NaN、标签转义�
   const real = timeChart(samplePond(SAMPLE_NOW).series['24h'][0].points, { ...o, label: '溶解氧' });
   assert.equal(real.match(/class="cl" d="([^"]+)"/)[1].split('M').length - 1, 1);
 });
+
+test('与取回脚本一致：末尾换行、非 ASCII 数字、不存在的日期、超大数一律拒绝', () => {
+  const mutate = fn => { const raw = sampleIndex(SAMPLE_NOW); fn(raw); return raw; };
+  for (const raw of [mutate(r => { r.bases[0].code = 'yx\n'; }), mutate(r => { r.generated_at = '2026-11-26T06:35:00Z\n'; }),
+    mutate(r => { r.generated_at = '٢٠٢٦-11-26T06:35:00Z'; }), mutate(r => { r.generated_at = '2026-13-01T06:35:00Z'; })])
+    assert.equal(parseIndex(raw), null);
+  assert.equal(parseIndex(JSON.parse(JSON.stringify(sampleIndex(SAMPLE_NOW)).replace('6.82', '1' + '0'.repeat(400)))), null);
+});

@@ -87,6 +87,10 @@ const curveFetching = new Set<string>();
 let liveRange: LiveRange = '24h';
 let feedFetching = false;
 let lastFeedAttempt = 0;
+/** 服务器时间 − 本机时间（毫秒）：过期判断以服务器时间为准，访客电脑时钟不准也不会把停了的数据显示成实时。 */
+let clockOffset = 0;
+const liveNow = () => Date.now() + clockOffset;
+const slotCache = new Map<string, string>();
 
 async function getJson(path: string, maxBytes: number): Promise<unknown> {
   const ctrl = new AbortController();
@@ -94,6 +98,8 @@ async function getJson(path: string, maxBytes: number): Promise<unknown> {
   try {
     const res = await fetch(path, { credentials: 'omit', cache: 'no-cache', signal: ctrl.signal });
     if (!res.ok) return undefined;
+    const served = Date.parse(res.headers.get('Date') ?? '');
+    if (Number.isFinite(served)) clockOffset = served - Date.now();
     const buf = await res.arrayBuffer();
     if (buf.byteLength > maxBytes) return undefined;
     return JSON.parse(new TextDecoder().decode(buf));
@@ -134,25 +140,43 @@ function ensureCurves(code: string): void {
   curves.set(code, { status: 'loading' });
   void refreshCurves(code).then(renderSlots);
 }
-function slotHtml(name: string): string {
-  const now = Date.now();
-  if (name === 'home') return homeLivePanel(feed, now) ?? demoHeroPanel();
+function buildSlot(name: string): string {
+  const now = liveNow();
+  if (name === 'home') return homeLivePanel(feed, now) ?? demoHeroPanel(samples);
   if (name === 'bases') return basesGrid(feed, now);
   if (route.name === 'live') return liveBasePage(route.id, feed, now);
   if (route.name === 'pond') return livePondPage(route.id, feed, curves.get(route.id) ?? { status: 'loading' }, liveRange, now);
   return '';
+}
+/** 生成片段并记下最近一次放进页面的内容，下次内容没变就不替换。 */
+function slotHtml(name: string): string {
+  const html = buildSlot(name);
+  slotCache.set(name, html);
+  return html;
 }
 /** 只替换带 data-live-slot 的片段，不动片段之外的内容（输入框、滚动位置）；重绘后找回焦点。 */
 function renderSlots(): void {
   const slots = view.querySelectorAll<HTMLElement>('[data-live-slot]');
   if (!slots.length) return;
   const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const range = active?.closest<HTMLElement>('[data-live-slot]') ? active.dataset.range : undefined;
-  const heading = active?.hasAttribute('data-heading') && active.closest('[data-live-slot]');
-  slots.forEach(el => { el.outerHTML = slotHtml(el.dataset.liveSlot ?? ''); });
+  const inSlot = !!active?.closest('[data-live-slot]');
+  const range = inSlot ? active?.dataset.range : undefined;
+  const heading = inSlot && active?.hasAttribute('data-heading');
+  const link = inSlot ? active?.getAttribute('href') : null;
+  let replaced = false;
+  slots.forEach(el => {
+    const name = el.dataset.liveSlot ?? '';
+    const before = slotCache.get(name);
+    const html = slotHtml(name);
+    if (html !== before) { el.outerHTML = html; replaced = true; }
+  });
   if (route.name === 'pond') ensureCurves(route.id);
-  const target = range ? view.querySelector<HTMLElement>(`[data-range="${range}"]`) : heading ? view.querySelector<HTMLElement>('[data-heading]') : null;
-  target?.focus({ preventScroll: true });
+  if (replaced && inSlot && !active?.isConnected) {
+    const target = range ? view.querySelector<HTMLElement>(`[data-range="${range}"]`)
+      : heading ? view.querySelector<HTMLElement>('[data-heading]')
+      : link ? [...view.querySelectorAll<HTMLElement>('[data-live-slot] [href]')].find(a => a.getAttribute('href') === link) : null;
+    target?.focus({ preventScroll: true });
+  }
   setTitle();
 }
 window.setInterval(() => { if (!document.hidden) void refreshFeed(); }, 60_000);

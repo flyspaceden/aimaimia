@@ -60,3 +60,20 @@ test('基地页、基地列表、首页面板、标题', () => {
   assert.match(homePage(demoHeroPanel()), /data-counter="samples"/);
   assert.deepEqual([liveTitle('pond', 'yx-00', feed), liveTitle('live', 'yx', feed), liveTitle('pond', 'yx-00', { status: 'loading' })], ['永兴 0 号塘', '阳江永兴基地', undefined]);
 });
+
+test('索引是新的但这口塘的读数全都过期：标“数据中断”，首页面板去掉跳动圆点', () => {
+  const raw = sampleIndex(now);
+  for (const r of raw.bases[0].ponds[0].readings) if (r.value !== null) r.observed_at = '2026-11-26T03:00:00Z';
+  const stale = { status: 'ok', index: parseIndex(raw) };
+  assert.match(livePondPage('yx-00', stale, curves, '24h', now), /tag-warn">数据中断/);
+  assert.equal(livePondPage('yx-00', stale, curves, '24h', now).includes('tag-ok">实时数据'), false);
+  const panel = homeLivePanel(stale, now);
+  assert.match(panel, /数据中断/); assert.equal(panel.includes('live-dot'), false);
+  assert.match(basesGrid(stale, now), /live-base[\s\S]*?数据中断/);
+  assert.match(liveBasePage('yx', stale, now), /tag-warn">数据中断/);
+});
+test('曲线文件比索引旧 15 分钟以上时说明曲线截至何时', () => {
+  const old = { status: 'ok', file: parsePondFile(samplePond(now - 3_600_000), 'yx-00') };
+  assert.match(livePondPage('yx-00', feed, old, '24h', now), /以下曲线截至 13:35/);
+  assert.equal(livePondPage('yx-00', feed, curves, '24h', now).includes('以下曲线截至'), false);
+});

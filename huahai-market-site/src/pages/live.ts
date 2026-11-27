@@ -1,6 +1,6 @@
 /** 真实监测数据的页面片段：只拼字符串；数据文件里的文字一律转义；now 由调用方传入。 */
 import {
-  ageText, beijingDate, beijingTime, featuredPond, findLiveBase, findLivePond, isFeedStale, liveRanges, readingState, stamp, valueText,
+  ageText, beijingDate, beijingTime, featuredPond, findLiveBase, findLivePond, isBaseStale, isFeedStale, isPondStale, liveRanges, readingState, stamp, valueText,
   type LiveBase, type LiveFeed, type LiveIndex, type LivePond, type LiveRange, type LiveReading, type PondCurves,
 } from '../live.js';
 import { icon, timeChart } from '../svg.js';
@@ -35,7 +35,7 @@ export function homeLivePanel(feed: LiveFeed, now: number): string | null {
   if (feed.status !== 'ok') return null;
   const hit = featuredPond(feed.index);
   if (!hit) return null;
-  const stale = isFeedStale(feed.index, now);
+  const stale = isPondStale(feed.index, hit.pond, now);
   return `<div class="hero-panel card glass live-panel" data-live-slot="home" aria-label="${esc(hit.pond.name)}实时水质">
       <div class="row">${stale ? '' : '<span class="live-dot"></span>'}<b>${esc(hit.pond.name)} · 实时水质</b>${liveTag(stale)}</div>
       ${tiles(withValue(hit.pond).slice(0, 4), now)}
@@ -47,9 +47,8 @@ export function homeLivePanel(feed: LiveFeed, now: number): string | null {
 // ---------- 基地列表里的真实基地卡片 ----------
 export function liveBaseCards(feed: LiveFeed, now: number): string {
   if (feed.status !== 'ok') return '';
-  const stale = isFeedStale(feed.index, now);
   return feed.index.bases.map(b => `<a class="base-card card glass live-base" href="${href('live', b.code)}">
-      <div class="row"><b>${esc(b.name)}</b>${liveTag(stale)}</div>
+      <div class="row"><b>${esc(b.name)}</b>${liveTag(isBaseStale(feed.index, b, now))}</div>
       <p class="muted sm">${esc(place(b) || feed.index.company.name)}</p>
       ${(() => { const p = b.ponds.find(x => withValue(x).length); return p ? `<div class="xs muted">${esc(p.name)} 最新读数</div>${tiles(withValue(p).slice(0, 4), now)}` : ''; })()}
       <div class="base-meta mono"><span>${b.ponds.length} 口公开塘</span><span>探头自动采集</span></div>
@@ -73,7 +72,7 @@ export function liveBasePage(code: string, feed: LiveFeed, now: number): string 
   if (feed.status === 'unavailable') return slot(unavailable());
   const b = findLiveBase(feed.index, code);
   if (!b) return slot(empty('没有找到这个基地', '链接可能有误，或这个基地已不再公开。', href('bases'), '查看全部基地'));
-  const idx = feed.index, stale = isFeedStale(idx, now);
+  const idx = feed.index, stale = isBaseStale(idx, b, now);
   return slot(`<nav class="crumbs" aria-label="位置"><a href="${href('home')}">首页</a><span>/</span><a href="${href('bases')}">产地基地</a><span>/</span><span aria-current="page">${esc(b.name)}</span></nav>
   ${pageHead(`${place(b) || '产地'} · 真实监测`, b.name, idx.company.name, `<div class="phead-meta mono">${liveTag(stale)}${updated(idx, now)}<span>${b.ponds.length} 口公开塘</span></div>`)}
   ${banner(idx, now)}
@@ -102,7 +101,7 @@ export function livePondPage(code: string, feed: LiveFeed, curves: PondCurves, r
   if (feed.status === 'unavailable') return slot(unavailable());
   const hit = findLivePond(feed.index, code);
   if (!hit) return slot(empty('没有找到这口塘', '链接可能有误，或这口塘已不再公开。', href('bases'), '查看全部基地'));
-  const { base, pond } = hit, idx = feed.index, stale = isFeedStale(idx, now);
+  const { base, pond } = hit, idx = feed.index, stale = isPondStale(idx, pond, now);
   const meta = `<div class="phead-meta mono">${liveTag(stale)}${updated(idx, now)}${area(pond) ? `<span>${esc(area(pond))}</span>` : ''}</div>`;
   return slot(`<nav class="crumbs" aria-label="位置"><a href="${href('home')}">首页</a><span>/</span><a href="${href('bases')}">产地基地</a><span>/</span><a href="${href('live', base.code)}">${esc(base.name)}</a><span>/</span><span aria-current="page">${esc(pond.name)}</span></nav>
   ${pageHead(`${base.name} · 真实监测`, pond.name, '', meta)}
@@ -111,6 +110,7 @@ export function livePondPage(code: string, feed: LiveFeed, curves: PondCurves, r
   <section class="section live-curves-sec">
     <div class="sec-head"><div><div class="kicker">变化曲线</div><h2>水质走势</h2></div>
       <div class="seg" role="group" aria-label="时间范围">${liveRanges.map(x => `<button class="seg-i" data-range="${x.id}" aria-pressed="${x.id === range}">${x.label}</button>`).join('')}</div></div>
+    ${curves.status === 'ok' && Date.parse(idx.generated_at) - Date.parse(curves.file.generated_at) > 900_000 ? `<p class="notice notice-warn live-curve-old" role="status">曲线暂未更新，以下曲线截至 ${stamp(curves.file.generated_at, now)}</p>` : ''}
     <div class="live-curves">${pond.readings.map((r, i) => curveCard(r, i, curves, range, idx)).join('')}</div>
   </section>
   <p class="xs muted live-source">${SOURCE}</p>`);

@@ -123,6 +123,11 @@ export function readingState(r: LiveReading, now: number): 'none' | 'stale' | 'f
   return now - Date.parse(r.observed_at) > READING_STALE_MS ? 'stale' : 'fresh';
 }
 
+/** 塘口是否算“数据中断”：整份过期，或没有任何一项读数是新鲜的（探头都停了）。 */
+export const isPondStale = (index: LiveIndex, pond: LivePond, now: number) =>
+  isFeedStale(index, now) || !pond.readings.some(r => readingState(r, now) === 'fresh');
+export const isBaseStale = (index: LiveIndex, base: LiveBase, now: number) => base.ponds.every(p => isPondStale(index, p, now));
+
 export function ageText(ms: number): string {
   const min = Math.floor(ms / 60_000);
   if (min < 1) return '刚刚';
