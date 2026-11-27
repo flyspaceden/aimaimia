@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { timeChart } from '../dist/assets/svg.js';
 import { parseIndex, parsePondFile, isPondCode, isBaseCode, findLivePond, findLiveBase, featuredPond, isFeedStale, readingState, ageText, stamp, valueText, liveRanges } from '../dist/assets/live.js';
 import { SAMPLE_NOW, sampleIndex, samplePond } from '../scripts/live-sample.mjs';
 const fixture = name => JSON.parse(readFileSync(new URL(`./fixtures/live-v1/${name}`, import.meta.url), 'utf8'));
@@ -74,4 +75,20 @@ test('查找与首页用哪口塘', () => {
   const empty = clone(idx); for (const r of empty.bases[0].ponds[0].readings) { r.value = null; r.observed_at = null; }
   assert.equal(featuredPond(empty), undefined);
   assert.deepEqual([isPondCode('yx-00'), isPondCode('yx'), isPondCode('../x'), isBaseCode('yx'), isBaseCode('Y X')], [true, false, false, true, false]);
+});
+
+test('时间曲线：断档处断开、平线和单点不出 NaN、标签转义、无内联样式', () => {
+  const t0 = SAMPLE_NOW - 86_400_000;
+  const o = { from: t0, to: SAMPLE_NOW, gapMs: 750_000, color: '#0e7490', unit: 'mg/L', label: '溶解氧 <1>"', xLabel: ms => String(ms - t0) };
+  const svg = timeChart([[t0, 5], [t0 + 300_000, 5], [t0 + 3_600_000, 5], [t0 + 3_900_000, 5]], o);
+  const d = svg.match(/class="cl" d="([^"]+)"/)[1];
+  assert.equal(d.split('M').length - 1, 2);
+  assert.equal(/NaN|Infinity|style=/.test(svg), false);
+  assert.equal(svg.includes('<1>'), false);
+  assert.match(svg, /最低 5mg\/L，最高 5mg\/L，最新 5mg\/L/);
+  assert.match(timeChart([[t0 + 1, 5]], o), /曲线准备中/);
+  assert.match(timeChart([], o), /曲线准备中/);
+  assert.match(timeChart([[t0 - 9e9, 1], [t0 - 8e9, 2]], o), /曲线准备中/);   // 都在窗口之外
+  const real = timeChart(samplePond(SAMPLE_NOW).series['24h'][0].points, { ...o, label: '溶解氧' });
+  assert.equal(real.match(/class="cl" d="([^"]+)"/)[1].split('M').length - 1, 1);
 });
