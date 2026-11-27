@@ -25,7 +25,7 @@ function tile(r: LiveReading, now: number): string {
   const state = readingState(r, now);
   const value = r.value === null ? '—' : valueText(r.value);
   const time = state === 'none' ? '暂无读数' : state === 'stale' ? `${ageText(now - Date.parse(r.observed_at!))}的读数` : stamp(r.observed_at!, now);
-  return `<div class="rd live-rd${state === 'stale' ? ' rd-stale' : ''}" data-reading="${esc(r.key)}"><span class="xs muted">${esc(r.label)}</span><b class="mono">${value}${r.unit ? `<small> ${esc(r.unit)}</small>` : ''}</b><span class="xs rd-time">${time}</span></div>`;
+  return `<div class="rd live-rd${state === 'stale' ? ' rd-stale' : ''}" data-reading="${esc(r.key)}"><span class="xs muted">${esc(r.label)}</span><b class="mono">${value}${r.unit && r.value !== null ? `<small> ${esc(r.unit)}</small>` : ''}</b><span class="xs rd-time">${time}</span></div>`;
 }
 const tiles = (list: LiveReading[], now: number) => `<div class="live-tiles">${list.map(r => tile(r, now)).join('')}</div>`;
 const withValue = (p: LivePond) => p.readings.filter(r => r.value !== null);

@@ -131,7 +131,7 @@ const num = (v: number) => String(Math.round(v * 100) / 100);
 export function timeChart(points: readonly (readonly [number, number])[], o: TimeChartOpts): string {
   const pts = points.filter(([t, v]) => t >= o.from && t <= o.to && Number.isFinite(v));
   if (pts.length < 2 || o.to <= o.from) return '<p class="muted chart-empty">曲线准备中</p>';
-  const W = 720, H = o.height ?? 200, pl = 48, pr = 14, pt = 14, pb = 26;
+  const W = 480, H = o.height ?? 220, pl = 44, pr = 12, pt = 14, pb = 26;
   const values = pts.map(p => p[1]);
   const min = Math.min(...values), max = Math.max(...values), last = values[values.length - 1]!;
   const pad = max - min ? (max - min) * 0.12 : 1, y0 = min - pad, y1 = max + pad;
@@ -140,7 +140,7 @@ export function timeChart(points: readonly (readonly [number, number])[], o: Tim
   let d = '';
   pts.forEach(([t, v], i) => { d += `${i && t - pts[i - 1]![0] <= o.gapMs ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`; });
   const ticks = [0, 1, 2, 3].map(k => y0 + (k / 3) * (y1 - y0));
-  const digits = (y1 - y0) < 1 ? 2 : (y1 - y0) < 20 ? 1 : 0;
+  const digits = (y1 - y0) < 0.1 ? 3 : (y1 - y0) < 1 ? 2 : (y1 - y0) < 20 ? 1 : 0;
   const xs = [o.from, (o.from + o.to) / 2, o.to];
   const [lt, lv] = pts[pts.length - 1]!;
   const label = escText(o.label), unit = escText(o.unit);
