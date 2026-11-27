@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-26T06:35:00Z",
+  "company": {
+    "name": "华海农科"
+  },
+  "bases": [
+    {
+      "code": "yx",
+      "name": "阳江永兴基地",
+      "province": "广东省",
+      "city": "阳江市",
+      "district": "",
+      "address": "样例地址（本地预览）",
+      "lat": 21.75,
+      "lng": 111.85,
+      "ponds": [
+        {
+          "code": "yx-00",
+          "name": "永兴 0 号塘",
+          "area_value": 5,
+          "area_unit": "亩",
+          "readings": [
+            {
+              "key": "r1",
+              "label": "溶解氧 · 1 号探头",
+              "metric_name": "溶解氧",
+              "unit": "mg/L",
+              "value": 6.82,
+              "observed_at": "2026-11-26T06:34:00Z"
+            },
+            {
+              "key": "r2",
+              "label": "水温 · 1 号探头",
+              "metric_name": "水温",
+              "unit": "℃",
+              "value": 24.3,
+              "observed_at": "2026-11-26T06:34:00Z"
+            },
+            {
+              "key": "r3",
+              "label": "pH · 1 号探头",
+              "metric_name": "pH",
+              "unit": "",
+              "value": 7.92,
+              "observed_at": "2026-11-26T06:34:00Z"
+            },
+            {
+              "key": "r4",
+              "label": "氨氮 · 2 号探头",
+              "metric_name": "氨氮",
+              "unit": "mg/L",
+              "value": 0.03,
+              "observed_at": "2026-11-26T06:34:00Z"
+            },
+            {
+              "key": "r5",
+              "label": "盐度 · 2 号探头",
+              "metric_name": "盐度",
+              "unit": "‰",
+              "value": null,
+              "observed_at": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
