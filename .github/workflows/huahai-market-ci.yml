@@ -33,5 +33,8 @@ jobs:
       - name: Typecheck, build and test market portal
         run: npm test
         working-directory: huahai-market-site
+      - name: Test edge live-data fetcher
+        run: python3 -m unittest discover -s deploy/live-fetch -p 'test_*.py'
+        working-directory: huahai-market-site
       - name: Validate deployment boundaries
         run: node --test scripts/__tests__/deploy-backend-main-safety.test.mjs

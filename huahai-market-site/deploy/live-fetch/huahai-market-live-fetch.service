@@ -1,0 +1,25 @@
+[Unit]
+Description=华海农贸市场：从物联网服务器内网取回公开监测数据文件
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=huahai-live
+Group=huahai-live
+EnvironmentFile=/etc/huahai-market-live.env
+ExecStart=/usr/bin/python3 /opt/huahai-market-live/fetch_live.py --source ${LIVE_SOURCE} --host ${LIVE_HOST} --dest /var/www/huahai-market-live/v1
+TimeoutStartSec=120s
+UMask=0022
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+ReadWritePaths=/var/www/huahai-market-live/v1
