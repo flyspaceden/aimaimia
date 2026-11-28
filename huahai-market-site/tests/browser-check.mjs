@@ -185,7 +185,7 @@ try {
     await page.locator('svg.chart-time').first().waitFor();
     assert.equal(await heading(), '永兴 0 号塘');
     assert.equal(await page.locator('[data-reading]').count(), 5);
-    assert.equal(await page.locator('svg.chart-time').count(), 4);
+    assert.equal(await page.locator('svg.chart-time').count(), 5); // 含 1 条亚硝酸盐演示曲线
     await page.locator('[data-range="7d"]').click();
     assert.equal(await page.locator('[data-range="7d"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.evaluate(() => document.activeElement?.dataset.range), '7d');

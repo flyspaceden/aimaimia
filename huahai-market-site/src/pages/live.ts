@@ -3,10 +3,12 @@ import {
   ageText, beijingDate, beijingTime, featuredPond, findLiveBase, findLivePond, isBaseStale, isFeedStale, isPondStale, liveRanges, readingState, stamp, valueText,
   type LiveBase, type LiveFeed, type LiveIndex, type LivePond, type LiveRange, type LiveReading, type PondCurves,
 } from '../live.js';
+import { demoReadingsFor, demoSeries, demoValue, type DemoReading } from '../liveDemo.js';
 import { icon, timeChart } from '../svg.js';
-import { empty, esc, href, pageHead } from '../ui.js';
+import { demoTag, empty, esc, href, pageHead } from '../ui.js';
 
 const COLORS = ['#0e7490', '#15803d', '#6d28d9', '#b45309', '#0369a1', '#be185d'];
+const DEMO_COLORS = ['#a16207', '#c2410c'];
 const SOURCE = '数据来源：物联网探头自动采集，约每 5 分钟更新一次';
 
 export function liveTag(stale: boolean): string {
@@ -27,7 +29,10 @@ function tile(r: LiveReading, now: number): string {
   const time = state === 'none' ? '暂无读数' : state === 'stale' ? `${ageText(now - Date.parse(r.observed_at!))}的读数` : stamp(r.observed_at!, now);
   return `<div class="rd live-rd${state === 'stale' ? ' rd-stale' : ''}" data-reading="${esc(r.key)}"><span class="xs muted">${esc(r.label)}</span><b class="mono">${value}${r.unit && r.value !== null ? `<small> ${esc(r.unit)}</small>` : ''}</b><span class="xs rd-time">${time}</span></div>`;
 }
-const tiles = (list: LiveReading[], now: number) => `<div class="live-tiles">${list.map(r => tile(r, now)).join('')}</div>`;
+const tiles = (list: LiveReading[], now: number, extra = '') => `<div class="live-tiles">${list.map(r => tile(r, now)).join('')}${extra}</div>`;
+/** 演示读数格：标“演示”，不显示采集时间，避免被当成探头读数。 */
+const demoTile = (d: DemoReading, at: number, stale: boolean) =>
+  `<div class="rd live-rd rd-demo${stale ? ' rd-demo-off' : ''}" data-demo-reading="${d.key}"><span class="xs muted">${esc(d.label)} ${demoTag()}</span><b class="mono">${demoValue(d, at).toFixed(3)}<small> ${esc(d.unit)}</small></b><span class="xs rd-time">演示数据，暂未接入探头</span></div>`;
 const withValue = (p: LivePond) => p.readings.filter(r => r.value !== null);
 
 // ---------- 首页面板 ----------
@@ -82,6 +87,14 @@ export function liveBasePage(code: string, feed: LiveFeed, now: number): string 
 }
 
 // ---------- 真实塘口页 ----------
+function demoCurveCard(d: DemoReading, i: number, range: LiveRange, index: LiveIndex): string {
+  const def = liveRanges.find(x => x.id === range)!, to = Date.parse(index.generated_at);
+  const body = timeChart(demoSeries(d, range, to), {
+    from: to - def.spanMs, to, gapMs: 2.5 * def.bucketMs, color: DEMO_COLORS[i % DEMO_COLORS.length]!, unit: d.unit, label: `${d.label}（演示）`,
+    xLabel: range === '24h' ? beijingTime : beijingDate,
+  });
+  return `<figure class="card live-curve live-curve-demo"><figcaption class="row"><b>${esc(d.label)}</b>${demoTag()}<span class="xs muted">${esc(d.unit)}</span></figcaption>${body}</figure>`;
+}
 function curveCard(r: LiveReading, i: number, curves: PondCurves, range: LiveRange, index: LiveIndex): string {
   const def = liveRanges.find(x => x.id === range)!;
   let body: string;
@@ -102,18 +115,20 @@ export function livePondPage(code: string, feed: LiveFeed, curves: PondCurves, r
   const hit = findLivePond(feed.index, code);
   if (!hit) return slot(empty('没有找到这口塘', '链接可能有误，或这口塘已不再公开。', href('bases'), '查看全部基地'));
   const { base, pond } = hit, idx = feed.index, stale = isPondStale(idx, pond, now);
+  const demos = demoReadingsFor(pond);
   const meta = `<div class="phead-meta mono">${liveTag(stale)}${updated(idx, now)}${area(pond) ? `<span>${esc(area(pond))}</span>` : ''}</div>`;
   return slot(`<nav class="crumbs" aria-label="位置"><a href="${href('home')}">首页</a><span>/</span><a href="${href('bases')}">产地基地</a><span>/</span><a href="${href('live', base.code)}">${esc(base.name)}</a><span>/</span><span aria-current="page">${esc(pond.name)}</span></nav>
   ${pageHead(`${base.name} · 真实监测`, pond.name, '', meta)}
   ${banner(idx, now)}
-  ${pond.readings.length ? tiles(pond.readings, now) : '<p class="muted">这口塘暂未公开读数。</p>'}
+  ${pond.readings.length || demos.length ? tiles(pond.readings, now, demos.map(d => demoTile(d, Date.parse(idx.generated_at), stale)).join('')) : '<p class="muted">这口塘暂未公开读数。</p>'}
+  ${demos.length ? `<p class="xs muted live-demo-note">标“演示”的${demos.map(d => esc(d.label)).join('、')}为演示数据，暂未接入探头；其余为探头真实读数。</p>` : ''}
   <section class="section live-curves-sec">
     <div class="sec-head"><div><div class="kicker">变化曲线</div><h2>水质走势</h2></div>
       <div class="seg" role="group" aria-label="时间范围">${liveRanges.map(x => `<button class="seg-i" data-range="${x.id}" aria-pressed="${x.id === range}">${x.label}</button>`).join('')}</div></div>
-    ${curves.status === 'ok' && Date.parse(idx.generated_at) - Date.parse(curves.file.generated_at) > 900_000 ? `<p class="notice notice-warn live-curve-old" role="status">曲线暂未更新，以下曲线截至 ${stamp(curves.file.generated_at, now)}</p>` : ''}
-    <div class="live-curves">${pond.readings.map((r, i) => curveCard(r, i, curves, range, idx)).join('')}</div>
+    ${curves.status === 'ok' && Date.parse(idx.generated_at) - Date.parse(curves.file.generated_at) > 900_000 ? `<p class="notice notice-warn live-curve-old" role="status">探头曲线暂未更新，探头曲线截至 ${stamp(curves.file.generated_at, now)}</p>` : ''}
+    <div class="live-curves">${pond.readings.map((r, i) => curveCard(r, i, curves, range, idx)).join('')}${demos.map((d, i) => demoCurveCard(d, i, range, idx)).join('')}</div>
   </section>
-  <p class="xs muted live-source">${SOURCE}</p>`);
+  <p class="xs muted live-source">${SOURCE}${demos.length ? '（标“演示”的项目除外）' : ''}</p>`);
 }
 
 export function liveTitle(name: 'live' | 'pond', id: string, feed: LiveFeed): string | undefined {
