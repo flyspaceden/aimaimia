@@ -370,6 +370,8 @@ textarea { padding: 10px 12px; min-height: 96px; resize: vertical; }
 .live-rd { gap: 2px; padding: 12px 14px; background: #fff; }
 .live-rd b { font-size: 22px; color: var(--cyan); } .live-rd b small { font-size: 13px; font-weight: 500; color: var(--muted); }
 .rd-time { color: var(--muted); }
+.rd-demo { background: #fffbf2; border-style: dashed; } .rd-demo b { color: #855514; } .rd-demo .tag { margin-left: 4px; }
+.live-demo-note { margin: 8px 0 0; }
 .rd-stale { background: var(--panel2); } .rd-stale b { color: var(--muted); } .rd-stale .rd-time { color: var(--amber); font-weight: 600; }
 .live-banner { margin: 0 0 16px; }
 .live-panel .live-tiles, .live-base .live-tiles { grid-template-columns: 1fr 1fr; }
