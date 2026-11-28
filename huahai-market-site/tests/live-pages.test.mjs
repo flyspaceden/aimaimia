@@ -74,8 +74,8 @@ test('索引是新的但这口塘的读数全都过期：标“数据中断”�
 });
 test('曲线文件比索引旧 15 分钟以上时说明曲线截至何时', () => {
   const old = { status: 'ok', file: parsePondFile(samplePond(now - 3_600_000), 'yx-00') };
-  assert.match(livePondPage('yx-00', feed, old, '24h', now), /以下曲线截至 13:35/);
-  assert.equal(livePondPage('yx-00', feed, curves, '24h', now).includes('以下曲线截至'), false);
+  assert.match(livePondPage('yx-00', feed, old, '24h', now), /探头曲线截至 13:35/);
+  assert.equal(livePondPage('yx-00', feed, curves, '24h', now).includes('探头曲线截至'), false);
 });
 
 test('塘口页：氨氮、亚硝酸盐演示读数与曲线，标“演示”，真实读数出现后自动让位', () => {
@@ -92,4 +92,15 @@ test('塘口页：氨氮、亚硝酸盐演示读数与曲线，标“演示”�
   assert.equal(real.includes('data-demo-reading="d1"'), false); assert.match(real, /data-demo-reading="d2"/);
   assert.match(real, /标“演示”的亚硝酸盐为演示数据/);
   assert.equal(homeLivePanel(noNh3, now).includes('tag-demo'), false); // 首页面板只放真实读数
+  assert.match(html, /aria-label="氨氮（演示）曲线/); assert.match(html, /（标“演示”的项目除外）/);
+  assert.equal(/style=/.test(html), false);
+  const byMetric = sampleIndex(now); byMetric.bases[0].ponds[0].readings[3].label = '2 号探头'; byMetric.bases[0].ponds[0].readings[3].metric_name = 'NH4+';
+  assert.equal(livePondPage('yx-00', { status: 'ok', index: parseIndex(byMetric) }, curves, '24h', now).includes('data-demo-reading="d1"'), false);
+  const variant = sampleIndex(now); variant.bases[0].ponds[0].readings[3].label = '亚硝氮'; variant.bases[0].ponds[0].readings[3].metric_name = 'x';
+  assert.equal(livePondPage('yx-00', { status: 'ok', index: parseIndex(variant) }, curves, '24h', now).includes('data-demo-reading="d2"'), false);
+  const none = sampleIndex(now); none.bases[0].ponds[0].readings = [];
+  const empty = livePondPage('yx-00', { status: 'ok', index: parseIndex(none) }, curves, '24h', now);
+  assert.match(empty, /这口塘暂未公开读数/); assert.equal(empty.includes('tag-demo'), false);
+  const late = livePondPage('yx-00', noNh3, curves, '24h', now + 2 * 3_600_000);
+  assert.match(late, /rd-demo rd-demo-off/);
 });

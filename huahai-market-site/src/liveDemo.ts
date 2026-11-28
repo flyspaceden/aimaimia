@@ -6,13 +6,13 @@ import { liveRanges, type LivePond, type LiveRange } from './live.js';
 
 export interface DemoReading { key: string; label: string; unit: string; base: number; day: number; week: number; noise: number; real: RegExp }
 export const DEMO_READINGS: readonly DemoReading[] = [
-  { key: 'd1', label: '氨氮', unit: 'mg/L', base: 0.18, day: 0.05, week: 0.02, noise: 0.01, real: /氨氮|nh3|nh4/i },
-  { key: 'd2', label: '亚硝酸盐', unit: 'mg/L', base: 0.04, day: 0.012, week: 0.005, noise: 0.003, real: /亚硝酸|no2/i },
+  { key: 'd1', label: '氨氮', unit: 'mg/L', base: 0.18, day: 0.05, week: 0.02, noise: 0.005, real: /氨|铵|nh[34]/i },
+  { key: 'd2', label: '亚硝酸盐', unit: 'mg/L', base: 0.04, day: 0.012, week: 0.005, noise: 0.0015, real: /亚硝|no[2₂]/i },
 ];
 const STEP = 300_000, DAY = 86_400_000, WEEK = 7 * DAY;
 
-/** 这口塘还缺哪些演示项（已有同类真实读数的不再演示）。 */
-export const demoReadingsFor = (pond: LivePond) =>
+/** 这口塘还缺哪些演示项（已有同类真实读数的不再演示；没有任何真实读数的塘不演示）。 */
+export const demoReadingsFor = (pond: LivePond) => !pond.readings.length ? [] :
   DEMO_READINGS.filter(d => !pond.readings.some(r => d.real.test(r.label) || d.real.test(r.metric_name)));
 
 function noise(key: string, bucket: number): number {
