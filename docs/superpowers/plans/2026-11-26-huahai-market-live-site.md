@@ -489,7 +489,7 @@ POND_MAX = 1048576
 def clean_index(raw):            # -> dict；违反契约任何一条（包括多出任何键）抛 ValueError
 def clean_pond(raw, code, keys): # -> dict；keys 是索引里这口塘的读数 key 集合；series 里出现集合之外的 key 也抛 ValueError
 def run(source, dest, host=None): # -> int 退出码；source 是以 / 结尾的 URL 前缀（http:// 或测试用的 file://），dest 是已存在的目录；host 非空时作为 Host 请求头发出
-def main(argv=None):             # 参数 --source、--dest 必填，--host 可选
+def main(argv=None):             # 参数 --source、--dest 必填，--host 对 file:// 测试源可选，对共用 18081 的 http 源必填（market-live.internal）
 ```
 
 - `run` 的规定：
