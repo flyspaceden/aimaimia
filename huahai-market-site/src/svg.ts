@@ -1,5 +1,6 @@
 /** 内联 SVG：图标、商品插画、图表。只生成静态标记，数值均来自演示数据，不含用户输入。 */
 import type { ArtKind, Point, Pond, Reading } from './data.js';
+import { escapeHtml as escText } from './model.js';
 
 const ICONS: Record<string, string> = {
   home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
@@ -123,6 +124,31 @@ export function lineChart(series: Point[], o: LineOpts): string {
     ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" class="cg"/><text x="${pl - 6}" y="${(y(t) + 4).toFixed(1)}" class="ct" text-anchor="end">${t.toFixed(t < 2 ? 2 : 1)}</text>`).join('')}
     <path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${o.color}" stroke-width="1.8" stroke-linejoin="round"/>
     ${marks}${months.join('')}</svg>`;
+}
+/** 按时间定位的曲线：相邻两点间隔超过 gapMs 处断开；不画适宜区间；不足 2 点显示“曲线准备中”。 */
+export interface TimeChartOpts { from: number; to: number; gapMs: number; color: string; unit: string; label: string; xLabel: (ms: number) => string; height?: number }
+const num = (v: number) => String(Math.round(v * 100) / 100);
+export function timeChart(points: readonly (readonly [number, number])[], o: TimeChartOpts): string {
+  const pts = points.filter(([t, v]) => t >= o.from && t <= o.to && Number.isFinite(v));
+  if (pts.length < 2 || o.to <= o.from) return '<p class="muted chart-empty">曲线准备中</p>';
+  const W = 480, H = o.height ?? 220, pl = 44, pr = 12, pt = 14, pb = 26;
+  const values = pts.map(p => p[1]);
+  const min = Math.min(...values), max = Math.max(...values), last = values[values.length - 1]!;
+  const pad = max - min ? (max - min) * 0.12 : 1, y0 = min - pad, y1 = max + pad;
+  const x = (t: number) => pl + ((t - o.from) / (o.to - o.from)) * (W - pl - pr);
+  const y = (v: number) => pt + (1 - (v - y0) / (y1 - y0)) * (H - pt - pb);
+  let d = '';
+  pts.forEach(([t, v], i) => { d += `${i && t - pts[i - 1]![0] <= o.gapMs ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`; });
+  const ticks = [0, 1, 2, 3].map(k => y0 + (k / 3) * (y1 - y0));
+  const digits = (y1 - y0) < 0.1 ? 3 : (y1 - y0) < 1 ? 2 : (y1 - y0) < 20 ? 1 : 0;
+  const xs = [o.from, (o.from + o.to) / 2, o.to];
+  const [lt, lv] = pts[pts.length - 1]!;
+  const label = escText(o.label), unit = escText(o.unit);
+  return `<svg class="chart chart-time" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label}曲线，${escText(o.xLabel(o.from))} 至 ${escText(o.xLabel(o.to))}，最低 ${num(min)}${unit}，最高 ${num(max)}${unit}，最新 ${num(last)}${unit}">
+    ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" class="cg"/><text x="${pl - 6}" y="${(y(t) + 4).toFixed(1)}" class="ct" text-anchor="end">${t.toFixed(digits)}</text>`).join('')}
+    <path class="cl" d="${d}" fill="none" stroke="${escText(o.color)}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(lt).toFixed(1)}" cy="${y(lv).toFixed(1)}" r="4" class="cm cm-live"/>
+    ${xs.map((t, i) => `<text x="${x(t).toFixed(1)}" y="${H - 8}" class="ct" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}">${escText(o.xLabel(t))}</text>`).join('')}</svg>`;
 }
 export function sparkline(values: number[], color: string): string {
   if (values.length < 2) return '';

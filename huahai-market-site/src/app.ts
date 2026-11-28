@@ -2,12 +2,14 @@ import { parseRoute, routeHash, routeTitles, isSort, type Route } from './model.
 import { demands, findBatch, findProduct, liveReading, readingText, platformStats, pondsOfBase, findBase, type Metric } from './data.js';
 import { Assistant } from './assistant.js';
 import { cart, orders, addToCart, setQty, cartCount, esc } from './ui.js';
-import { homePage } from './pages/home.js';
+import { homePage, demoHeroPanel } from './pages/home.js';
 import { shopPage, productPage } from './pages/shop.js';
 import { tracePage, traceSearchPage, waterBlock } from './pages/trace.js';
-import { basesPage, basePage } from './pages/bases.js';
+import { basesPage, basesGrid, basePage } from './pages/bases.js';
 import { sourcePage, workPage } from './pages/source.js';
 import { cartPage, checkoutPage, orderPage, totals } from './pages/cart.js';
+import { homeLivePanel, liveBasePage, livePondPage, liveTitle } from './pages/live.js';
+import { findLivePond, liveRanges, parseIndex, parsePondFile, type LiveFeed, type LiveRange, type PondCurves } from './live.js';
 
 function get<T extends Element>(selector: string): T {
   const el = document.querySelector<T>(selector);
@@ -42,7 +44,8 @@ function render(focus: boolean): void {
     case 'shop': html = shopPage(r); break;
     case 'product': html = productPage(r.id); break;
     case 'trace': html = r.id ? tracePage(r.id) : traceSearchPage(); break;
-    case 'bases': html = basesPage(); break;
+    case 'bases': html = basesPage(slotHtml('bases')); break;
+    case 'live': case 'pond': html = slotHtml('page'); if (r.name === 'pond') ensureCurves(r.id); break;
     case 'base': {
       const list = pondsOfBase(r.id);
       if (!list.some(p => p.id === selectedPond)) selectedPond = list[0]?.id ?? '';
@@ -53,14 +56,13 @@ function render(focus: boolean): void {
     case 'cart': html = cartPage(); break;
     case 'checkout': html = checkoutPage(); break;
     case 'order': html = orderPage(r.id); break;
-    default: html = homePage();
+    default: html = homePage(slotHtml('home'));
   }
   view.innerHTML = html;
   const product = r.name === 'product' ? findProduct(r.id) : undefined;
   const batch = r.name === 'trace' ? findBatch(r.id) : product ? findBatch(product.batchCode) : undefined;
-  const detail = product?.name ?? batch?.code ?? (r.name === 'base' ? findBase(r.id)?.name : undefined);
-  document.title = `${detail ? detail + ' · ' : ''}${routeTitles[r.name]} | 华海农科 AI 农贸市场`;
-  const section = r.name === 'product' ? 'shop' : r.name === 'base' ? 'bases' : r.name === 'checkout' || r.name === 'order' ? 'cart' : r.name;
+  setTitle(product?.name ?? batch?.code);
+  const section = r.name === 'product' ? 'shop' : r.name === 'base' || r.name === 'live' || r.name === 'pond' ? 'bases' : r.name === 'checkout' || r.name === 'order' ? 'cart' : r.name;
   app.querySelectorAll<HTMLAnchorElement>('[data-nav]').forEach(a => a.dataset.nav === section ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   assistant.setContext(batch?.code);
   setMenu(false);
@@ -72,6 +74,114 @@ function render(focus: boolean): void {
     window.scrollTo({ top: restore, behavior: 'instant' as ScrollBehavior });
   }
 }
+function setTitle(detail?: string): void {
+  const r = route;
+  const name = detail ?? (r.name === 'base' ? findBase(r.id)?.name : r.name === 'live' || r.name === 'pond' ? liveTitle(r.name, r.id, feed) : undefined);
+  document.title = `${name ? name + ' · ' : ''}${routeTitles[r.name]} | 华海农科 AI 农贸市场`;
+}
+
+// ---------- 真实监测数据：只请求本站 /live/v1/ 下的静态文件，每 60 秒刷新；失败时保留上一份成功的数据 ----------
+let feed: LiveFeed = { status: 'loading' };
+const curves = new Map<string, PondCurves>();
+const curveFetching = new Set<string>();
+let liveRange: LiveRange = '24h';
+let feedFetching = false;
+let lastFeedAttempt = 0;
+/** 服务器时间 − 本机时间（毫秒）：过期判断以服务器时间为准，访客电脑时钟不准也不会把停了的数据显示成实时。 */
+let clockOffset = 0;
+const liveNow = () => Date.now() + clockOffset;
+const slotCache = new Map<string, string>();
+
+async function getJson(path: string, maxBytes: number): Promise<unknown> {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), 10_000);
+  try {
+    const res = await fetch(path, { credentials: 'omit', cache: 'no-cache', signal: ctrl.signal });
+    if (!res.ok) return undefined;
+    const served = Date.parse(res.headers.get('Date') ?? '');
+    if (Number.isFinite(served)) clockOffset = served - Date.now();
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) return undefined;
+    return JSON.parse(new TextDecoder().decode(buf));
+  } catch {
+    return undefined;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+async function refreshCurves(code: string): Promise<void> {
+  if (feed.status !== 'ok' || !findLivePond(feed.index, code) || curveFetching.has(code)) return;
+  curveFetching.add(code);
+  try {
+    const file = parsePondFile(await getJson(`live/v1/pond-${code}.json`, 1_048_576), code);
+    if (file) curves.set(code, { status: 'ok', file });
+    else if (curves.get(code)?.status !== 'ok') curves.set(code, { status: 'missing' });
+  } finally {
+    curveFetching.delete(code);
+  }
+}
+async function refreshFeed(): Promise<void> {
+  if (feedFetching) return;
+  feedFetching = true;
+  lastFeedAttempt = Date.now();
+  try {
+    const index = parseIndex(await getJson('live/v1/index.json', 262_144));
+    if (index) feed = { status: 'ok', index };
+    else if (feed.status !== 'ok') feed = { status: 'unavailable' };
+    if (route.name === 'pond') await refreshCurves(route.id);
+  } finally {
+    feedFetching = false;
+    renderSlots();
+  }
+}
+/** 进入塘口页时：还没取过这口塘的曲线就先显示“载入中”再去取。 */
+function ensureCurves(code: string): void {
+  if (feed.status !== 'ok' || curves.has(code) || !findLivePond(feed.index, code)) return;
+  curves.set(code, { status: 'loading' });
+  void refreshCurves(code).then(renderSlots);
+}
+function buildSlot(name: string): string {
+  const now = liveNow();
+  if (name === 'home') return homeLivePanel(feed, now) ?? demoHeroPanel(samples);
+  if (name === 'bases') return basesGrid(feed, now);
+  if (route.name === 'live') return liveBasePage(route.id, feed, now);
+  if (route.name === 'pond') return livePondPage(route.id, feed, curves.get(route.id) ?? { status: 'loading' }, liveRange, now);
+  return '';
+}
+/** 生成片段并记下最近一次放进页面的内容，下次内容没变就不替换。 */
+function slotHtml(name: string): string {
+  const html = buildSlot(name);
+  slotCache.set(name, html);
+  return html;
+}
+/** 只替换带 data-live-slot 的片段，不动片段之外的内容（输入框、滚动位置）；重绘后找回焦点。 */
+function renderSlots(): void {
+  const slots = view.querySelectorAll<HTMLElement>('[data-live-slot]');
+  if (!slots.length) return;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const inSlot = !!active?.closest('[data-live-slot]');
+  const range = inSlot ? active?.dataset.range : undefined;
+  const heading = inSlot && active?.hasAttribute('data-heading');
+  const link = inSlot ? active?.getAttribute('href') : null;
+  let replaced = false;
+  slots.forEach(el => {
+    const name = el.dataset.liveSlot ?? '';
+    const before = slotCache.get(name);
+    const html = slotHtml(name);
+    if (html !== before) { el.outerHTML = html; replaced = true; }
+  });
+  if (route.name === 'pond') ensureCurves(route.id);
+  if (replaced && inSlot && !active?.isConnected) {
+    const target = range ? view.querySelector<HTMLElement>(`[data-range="${range}"]`)
+      : heading ? view.querySelector<HTMLElement>('[data-heading]')
+      : link ? [...view.querySelectorAll<HTMLElement>('[data-live-slot] [href]')].find(a => a.getAttribute('href') === link) : null;
+    target?.focus({ preventScroll: true });
+  }
+  setTitle();
+}
+window.setInterval(() => { if (!document.hidden) void refreshFeed(); }, 60_000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastFeedAttempt > 60_000) void refreshFeed(); });
+
 function onRoute(): void {
   if (dlg.open) { dlgReturn = null; dlg.close(); }
   route = parseRoute(location.hash);
@@ -190,6 +300,11 @@ app.addEventListener('click', e => {
     view.querySelectorAll('[data-metric]').forEach(x => x.setAttribute('aria-pressed', String(x === el)));
     return;
   }
+  if (d.range && route.name === 'pond') {
+    const next = liveRanges.find(x => x.id === d.range);
+    if (next) { liveRange = next.id; renderSlots(); }
+    return;
+  }
   if (d.pond && route.name === 'base') { selectedPond = d.pond; render(false); view.querySelector<HTMLElement>(`[data-pond="${d.pond}"]`)?.focus(); return; }
   if (d.ask !== undefined) { assistant.open(d.batch, Number(d.ask)); return; }
   if (d.aiQ !== undefined) { assistant.ask(Number(d.aiQ)); return; }
@@ -271,3 +386,4 @@ window.setInterval(() => {
 
 window.addEventListener('hashchange', onRoute);
 render(false);
+void refreshFeed();

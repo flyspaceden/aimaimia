@@ -88,3 +88,29 @@ npm run preview
 - 边界不变：无后端、无网络请求、无存储；购物车与订单只在当前页面内存中，刷新清空；“模拟支付”不跳转任何支付页面。CSP 未放宽，页面不使用 `style` 属性。
 - 验证：`npm test`（严格类型 + 6 项单元测试）；`tests/browser-check.mjs` 8 组交互（批次码容错、未知 ID 空态、筛选深链与返回、档案目录与指标切换、购物车边界与演示下单、AI 助手、基地切换与表单 XSS、四种宽度无横向溢出）。
 - 未上线：发布到 `market.huahainongke.com` 需用户另行授权，沿用既有 `huahai-market` 发布目标。
+
+## 2026-11-26 接入真实养殖环境数据（第一步：水质）
+
+依据：[设计](../superpowers/specs/2026-11-26-huahai-market-live-environment-design.md) · [网站侧计划](../superpowers/plans/2026-11-26-huahai-market-live-site.md) · [物联网导出侧计划](../superpowers/plans/2026-11-26-huahai-market-live-iot-export.md)。
+
+**数据怎么来**：物联网服务器每 5 分钟导出一份只含已登记公开塘口的文件 → 官网服务器定时器从内网取回、校验后放到 `/var/www/huahai-market-live/v1/`（不在网站发布目录里，网站发版不会冲掉）→ nginx 以 `/live/v1/index.json`、`/live/v1/pond-<塘代号>.json` 对外提供 → 网页只请求本站这两类文件（安全策略 `connect-src 'self'`），页面可见时每 60 秒刷新。格式见网站侧计划“数据契约 v1”。
+
+**网页上**：产地基地列表真实基地在前标“实时数据”、演示基地标“演示”；新增 `#live/<基地代号>`（真实基地页）和 `#pond/<塘代号>`（真实塘口页：读数格 + 24小时/7天/30天曲线）；首页右侧面板取到真实数据时显示首个有读数的塘。过期与取不到时的表现见设计稿 6.5：单项读数超 30 分钟变灰写明多久前、整份超 15 分钟顶部提示中断且不再标“实时数据”、取不到时真实部分说明“暂时取不到”、首页回到演示面板。
+
+**本地预览**：`npm run build && LIVE_SAMPLE=1 PORT=4321 node scripts/preview.mjs`（用当前时间的样例代替真实文件；不带 `LIVE_SAMPLE` 时 `/live/` 一律 404，即“数据未接通”的样子）。浏览器检查：`PLAYWRIGHT_MODULE=<爱买买仓库>/tests/node_modules/playwright node tests/browser-check.mjs`（需先在 4319 端口起预览）。
+
+### 官网服务器安装步骤（执行前要用户放行）
+
+1. `python3 --version` 不低于 3.6。
+2. `useradd --system --no-create-home --shell /sbin/nologin huahai-live`。
+3. `install -d -o huahai-live -g huahai-live -m 0755 /var/www/huahai-market-live/v1`；`install -d -m 0755 /opt/huahai-market-live`。
+4. 放入 `huahai-market-site/deploy/live-fetch/fetch_live.py` → `/opt/huahai-market-live/`（0755，root 所有）；两份单元文件 → `/etc/systemd/system/`；按 `huahai-market-live.env.example` 写 `/etc/huahai-market-live.env`（真实内网地址见物联网侧部署文档，不进仓库）。
+5. `systemctl daemon-reload && systemctl start huahai-market-live-fetch.service`，看 `journalctl -u huahai-market-live-fetch -n 20`，目录里应出现 `index.json` 和 `pond-yx-00.json`；再 `systemctl enable --now huahai-market-live-fetch.timer`。
+6. 按 `huahai-market-site/deploy/market.huahainongke.com.conf` 更新站点配置（新增两个 `/live/` location、CSP 改 `connect-src 'self'`），`nginx -t` 后重载。（本地已用 nginx:stable-alpine 实测：两类文件 200 且 `application/json`，其他文件名、`/live/` 本身 404，POST 403。）
+7. `curl -I https://market.huahainongke.com/live/v1/index.json` 应为 200；`/live/v1/other.json`、`/live/` 应为 404。
+
+**发布顺序**：物联网导出上线并确认文件正常 → 官网服务器取回与 nginx → 网站走 PR → main → `huahai-market` 发布。顺序反过来也不会坏：数据未接通时网页显示演示内容和“实时数据暂时取不到”。
+
+**回退**：网站用发布目标自带回退；只停数据：`systemctl disable --now huahai-market-live-fetch.timer` 并清空 `/var/www/huahai-market-live/v1/`，网页自动回到演示内容。
+
+**运行须知**：现场更换盒子或探头后，登记的通道会失效，网页上该项显示“暂无读数”，需在物联网侧重新登记。取消公开某口塘后，下一轮取回会删掉它的曲线文件。

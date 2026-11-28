@@ -1,5 +1,5 @@
 /** 路由与通用工具。路由只承载页面、对象 ID 与公开筛选词，不放任何表单内容。 */
-export type RouteName = 'home' | 'shop' | 'product' | 'trace' | 'bases' | 'base' | 'source' | 'work' | 'cart' | 'checkout' | 'order';
+export type RouteName = 'home' | 'shop' | 'product' | 'trace' | 'bases' | 'base' | 'source' | 'work' | 'cart' | 'checkout' | 'order' | 'live' | 'pond';
 export type ShopCategory = 'all' | '鱼类' | '虾类';
 export type ShopSort = 'default' | 'price-asc' | 'price-desc' | 'sold';
 export type WorkStatus = 'ongoing' | 'quoted' | 'complete';
@@ -8,6 +8,7 @@ export interface Route { name: RouteName; id: string; category: ShopCategory; so
 export const routeTitles: Record<RouteName, string> = {
   home: '首页', shop: '买好货', product: '商品详情', trace: '溯源档案', bases: '产地基地', base: '基地详情',
   source: '产地采购', work: '交易工作台', cart: '购物车', checkout: '确认订单', order: '订单详情',
+  live: '基地实时数据', pond: '塘口实时数据',
 };
 const names = Object.keys(routeTitles) as RouteName[];
 export const isRouteName = (v: string): v is RouteName => (names as string[]).includes(v);

@@ -1,0 +1,10 @@
+[Unit]
+Description=每 5 分钟取回一次农贸市场公开监测数据（错开 1 分钟，排在物联网导出之后）
+
+[Timer]
+OnCalendar=*:1/5
+AccuracySec=10s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

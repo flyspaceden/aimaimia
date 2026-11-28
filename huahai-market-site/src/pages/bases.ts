@@ -1,18 +1,23 @@
 import { bases, batches, company, findBase, inPond, liveReading, metricInfo, readingText, pondsOfBase, productOfBatch, type Pond, type Reading } from '../data.js';
 import { icon, pondMap } from '../svg.js';
-import { esc, href, pageHead, empty } from '../ui.js';
+import { esc, href, pageHead, empty, demoTag } from '../ui.js';
+import { liveBaseCards } from './live.js';
+import type { LiveFeed } from '../live.js';
 
-export function basesPage(): string {
-  return `${pageHead('产地基地', `${company.short}的 ${bases.length} 个养殖基地`, company.intro)}
-  <div class="base-grid base-grid-lg">${bases.map(b => {
+/** 基地列表：真实基地在前（标“实时数据”），演示基地在后（标“演示”）；根元素可被局部重绘。 */
+export function basesGrid(feed: LiveFeed, now: number): string {
+  return `<div class="base-grid base-grid-lg" data-live-slot="bases">${liveBaseCards(feed, now)}${bases.map(b => {
     const list = pondsOfBase(b.id);
     return `<a class="base-card card glass" href="${href('base', b.id)}">
-      <div class="row"><b>${esc(b.name)}</b><span class="tag">${b.water === 'marine' ? '海水' : '淡水'}</span></div>
+      <div class="row"><b>${esc(b.name)}</b><span class="tag">${b.water === 'marine' ? '海水' : '淡水'}</span>${demoTag()}</div>
       <div class="mini-map">${pondMap(list, '', {})}</div>
       <p class="muted sm">${esc(b.intro)}</p>
       <div class="base-meta mono"><span>${esc(b.region)}</span><span>${esc(b.area)}</span><span>${list.length} 口塘</span><span>${b.sensors} 探头</span></div>
       <span class="link">进入基地 ${icon('arrow', 'ic ic-xs')}</span></a>`;
   }).join('')}</div>`;
+}
+export function basesPage(grid: string): string {
+  return `${pageHead('产地基地', `${company.short}养殖基地`, company.intro)}${grid}`;
 }
 
 const statusText: Record<Pond['status'], string> = { growing: '养殖中', harvested: '已起捕 · 待清塘', idle: '空塘' };
